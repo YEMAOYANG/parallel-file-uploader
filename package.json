@@ -26,6 +26,7 @@
     "postversion": "git push && git push --tags",
     "release": "./scripts/release.sh",
     "release:win": "./scripts/release.bat",
+    "release:simple": "./scripts/simple-release.bat",
     "release:patch": "npm version patch && npm publish",
     "release:minor": "npm version minor && npm publish",
     "release:major": "npm version major && npm publish",
