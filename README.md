@@ -116,14 +116,14 @@ const uploader = new ParallelFileUploader({
     '.xlsx'
   ],
   
-  // 新功能配置
+  // 新功能配置 - 默认均为false，按需启用
   enablePerformanceMonitor: true,   // 启用性能监控
   enableQueuePersistence: true,     // 启用队列持久化
   enableSpeedLimit: true,           // 启用速度限制
   maxUploadSpeed: 1024 * 1024,      // 限制上传速度为1MB/s
   persistenceKey: 'my-app-uploads', // 自定义持久化键名
   
-  // 服务器交互
+  // 服务器交互 - 必须实现这些回调
   sendFileInfoToServer: async (fileInfo) => {
     const response = await fetch('/api/upload/init', {
       method: 'POST',
@@ -193,15 +193,44 @@ const uploader = new ParallelFileUploader({
     console.log('所有文件上传完成!');
   },
   
-  // 性能监控回调
+  // 性能监控回调（需要启用性能监控）
   onPerformanceUpdate: (performanceData) => {
-    console.log(`当前速度: ${PerformanceMonitor.formatSpeed(performanceData.currentSpeed)}`);
-    console.log(`平均速度: ${PerformanceMonitor.formatSpeed(performanceData.averageSpeed)}`);
+    console.log(`当前速度: ${formatSpeed(performanceData.currentSpeed)}`);
+    console.log(`平均速度: ${formatSpeed(performanceData.averageSpeed)}`);
     if (performanceData.estimatedTimeRemaining) {
-      console.log(`预计剩余时间: ${PerformanceMonitor.formatTime(performanceData.estimatedTimeRemaining)}`);
+      console.log(`预计剩余时间: ${formatTime(performanceData.estimatedTimeRemaining)}`);
     }
   }
 });
+
+// 工具函数
+function formatSpeed(bytesPerSecond: number): string {
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  let size = bytesPerSecond;
+  let unitIndex = 0;
+  
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  
+  return `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function formatTime(milliseconds: number): string {
+  const seconds = Math.floor(milliseconds / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  
+  if (hours > 0) {
+    return `${hours}小时${minutes}分钟${remainingSeconds}秒`;
+  } else if (minutes > 0) {
+    return `${minutes}分钟${remainingSeconds}秒`;
+  } else {
+    return `${remainingSeconds}秒`;
+  }
+}
 ```
 
 ## 📖 API 文档
@@ -215,17 +244,16 @@ const uploader = new ParallelFileUploader({
 | `chunkSize` | `number` | `5242880` | 分片大小(字节)，默认5MB |
 | `maxRetries` | `number` | `3` | 分片上传失败最大重试次数 |
 | `retryDelay` | `number` | `1000` | 重试延迟时间(毫秒) |
-| `useWorker` | `boolean` | `true` | 是否使用Web Worker |
 | `maxFileSize` | `number` | - | 最大文件大小限制(字节) |
 | `allowedFileTypes` | `string[]` | - | 允许的文件类型 |
 | **新增配置** | | | |
 | `enablePerformanceMonitor` | `boolean` | `false` | 是否启用性能监控 |
 | `enableQueuePersistence` | `boolean` | `false` | 是否启用队列持久化 |
 | `enableSpeedLimit` | `boolean` | `false` | 是否启用速度限制 |
-| `speedLimit` | `number` | `0` | 速度限制(字节/秒)，0表示不限制 |
+| `maxUploadSpeed` | `number` | `0` | 速度限制(字节/秒)，0表示不限制 |
 | `persistenceKey` | `string` | `'parallel-uploader-queue'` | 持久化存储键名 |
 
-### 方法
+### 实例方法
 
 #### 基础方法
 
@@ -282,43 +310,52 @@ console.log(`
 
 #### 新增方法
 
-##### `getPerformanceMetrics(): PerformanceMetrics | null`
+##### `getPerformanceData(): PerformanceData`
 
-获取性能监控指标（需要启用性能监控）。
+获取性能监控数据（需要启用性能监控）。
 
 ```typescript
-const metrics = uploader.getPerformanceMetrics();
-if (metrics) {
-  console.log('当前上传速度:', ParallelFileUploader.formatSpeed(metrics.uploadSpeed));
-  console.log('平均上传速度:', ParallelFileUploader.formatSpeed(metrics.averageSpeed));
-  console.log('峰值速度:', ParallelFileUploader.formatSpeed(metrics.peakSpeed));
-  console.log('预计剩余时间:', ParallelFileUploader.formatTime(metrics.timeRemaining));
-  console.log('内存使用:', metrics.memoryUsage + 'MB');
-}
+const data = uploader.getPerformanceData();
+console.log('当前上传速度:', data.currentSpeed, 'B/s');
+console.log('平均上传速度:', data.averageSpeed, 'B/s');
+console.log('峰值速度:', data.peakSpeed, 'B/s');
+console.log('已传输字节数:', data.bytesTransferred);
 ```
 
-##### `setSpeedLimit(bytesPerSecond: number): void`
+##### `setSpeedLimit(bytesPerSecond: number, enabled: boolean = true): void`
 
 动态设置上传速度限制。
 
 ```typescript
 // 限制为500KB/s
-uploader.setSpeedLimit(500 * 1024);
+uploader.setSpeedLimit(500 * 1024, true);
 
 // 取消限制
-uploader.setSpeedLimit(0);
+uploader.setSpeedLimit(0, false);
 ```
 
-##### `setSpeedLimitEnabled(enabled: boolean): void`
+##### `setPerformanceMonitoring(enabled: boolean): void`
 
-启用或禁用速度限制。
+启用或禁用性能监控。
 
 ```typescript
-// 禁用速度限制
-uploader.setSpeedLimitEnabled(false);
+// 启用性能监控
+uploader.setPerformanceMonitoring(true);
 
-// 重新启用
-uploader.setSpeedLimitEnabled(true);
+// 禁用性能监控
+uploader.setPerformanceMonitoring(false);
+```
+
+##### `setQueuePersistence(enabled: boolean): void`
+
+启用或禁用队列持久化。
+
+```typescript
+// 启用队列持久化
+uploader.setQueuePersistence(true);
+
+// 禁用队列持久化
+uploader.setQueuePersistence(false);
 ```
 
 ##### `destroy(): void`
@@ -337,24 +374,6 @@ const md5 = await ParallelFileUploader.calculateFileMD5(file, 2097152, (progress
 });
 ```
 
-#### `ParallelFileUploader.formatSpeed(bytesPerSecond: number): string`
-
-格式化速度显示。
-
-```typescript
-console.log(ParallelFileUploader.formatSpeed(1024)); // "1.0 KB/s"
-console.log(ParallelFileUploader.formatSpeed(1048576)); // "1.0 MB/s"
-```
-
-#### `ParallelFileUploader.formatTime(seconds: number): string`
-
-格式化时间显示。
-
-```typescript
-console.log(ParallelFileUploader.formatTime(65)); // "1分钟5秒"
-console.log(ParallelFileUploader.formatTime(3665)); // "1小时1分钟"
-```
-
 ### 事件回调
 
 | 回调 | 参数 | 说明 |
@@ -367,17 +386,17 @@ console.log(ParallelFileUploader.formatTime(3665)); // "1小时1分钟"
 | `onAllComplete` | `()` | 所有文件上传完成时触发 |
 | `onFileRejected` | `(file: File, reason: string)` | 文件被拒绝时触发 |
 | **新增回调** | | |
-| `onPerformanceUpdate` | `(metrics: PerformanceMetrics)` | 性能指标更新时触发 |
+| `onPerformanceUpdate` | `(data: PerformanceData)` | 性能指标更新时触发 |
 
 ### 服务端交互回调
 
 | 回调 | 参数 | 返回值 | 说明 |
 |------|------|-------|------|
-| `sendFileInfoToServer` | `(fileInfo: FileInfo)` | `Promise<Response>` | 初始化文件上传 |
-| `sendFilePartToServer` | `(fileInfo, chunkInfo)` | `Promise<Response>` | 上传文件分片 |
-| `sendFileCompleteToServer` | `(fileInfo)` | `Promise<Response>` | 完成文件上传 |
-| `getFilePartsFromServer` | `(fileInfo)` | `Promise<Response>` | 获取已上传分片(断点续传) |
-| `sendPauseToServer` | `(fileInfo)` | `Promise<Response>` | 通知服务器暂停上传 |
+| `sendFileInfoToServer` | `(fileInfo: FileInfo)` | `Promise<ResGlobalInterface<any>>` | 初始化文件上传 |
+| `sendFilePartToServer` | `(fileInfo, chunkInfo)` | `Promise<ResGlobalInterface<any>>` | 上传文件分片 |
+| `sendFileCompleteToServer` | `(fileInfo)` | `Promise<ResGlobalInterface<any>>` | 完成文件上传 |
+| `getFilePartsFromServer` | `(fileInfo)` | `Promise<ResGlobalInterface<FilePartInfo[]>>` | 获取已上传分片(断点续传) |
+| `sendPauseToServer` | `(fileInfo)` | `Promise<ResGlobalInterface<any>>` | 通知服务器暂停上传 |
 
 ### 类型定义
 
@@ -385,38 +404,45 @@ console.log(ParallelFileUploader.formatTime(3665)); // "1小时1分钟"
 
 ```typescript
 interface FileInfo {
-  fileId: string;
-  fileName: string;
-  fileSize: number;
-  uploadedSize: number;
-  progress: number;
-  status: UploadStepEnum;
-  file: File;
-  errorMessage?: string;
-  lastUpdated?: number;
-  mimeType?: string;
-  totalChunks?: number;
+  fileId: string;           // 文件唯一标识符
+  fileName: string;         // 文件名
+  fileSize: number;         // 文件大小（字节）
+  uploadedSize: number;     // 已上传大小（字节）
+  progress: number;         // 上传进度百分比 (0-100)
+  status: UploadStepEnum;   // 文件上传状态
+  file: File;               // 原始文件对象
+  errorMessage?: string;    // 错误消息
+  lastUpdated?: number;     // 最后更新时间戳
+  mimeType?: string;        // 文件MIME类型
+  totalChunks?: number;     // 总分片数量
   uploadInfo?: {
-    parts?: Array<FilePartInfo>;
-    md5?: string;
-    [key: string]: any;
+    parts?: Array<FilePartInfo>;  // 已上传的分片列表
+    md5?: string;                 // 文件MD5值
+    [key: string]: any;           // 其他扩展字段
   };
-  uploadData?: any;
+  uploadData?: any;         // 自定义上传数据
 }
 ```
 
-#### PerformanceMetrics
+#### PerformanceData
 
 ```typescript
-interface PerformanceMetrics {
-  uploadSpeed: number;      // 当前上传速度（字节/秒）
-  averageSpeed: number;     // 平均上传速度（字节/秒）
-  timeRemaining: number;    // 预计剩余时间（秒）
-  memoryUsage?: number;     // 内存使用量（MB）
-  peakSpeed: number;        // 峰值速度（字节/秒）
-  totalBytesUploaded: number; // 总上传字节数
-  startTime: number;        // 开始时间
-  activeConnections: number; // 活动连接数
+interface PerformanceData {
+  currentSpeed: number;          // 当前上传速度（字节/秒）
+  averageSpeed: number;          // 平均上传速度（字节/秒）
+  peakSpeed: number;             // 峰值速度（字节/秒）
+  activeConnections: number;     // 活动连接数
+  bytesTransferred: number;      // 总传输字节数
+  elapsedTime: number;           // 已耗时（毫秒）
+  activeFiles: number;           // 活动文件数
+  totalFiles: number;            // 总文件数
+  timestamp: number;             // 时间戳
+  estimatedTimeRemaining?: number; // 预计剩余时间（毫秒）
+  memoryUsage?: {
+    used: number;                // 已使用内存（字节）
+    total: number;               // 总内存（字节）
+    percentage: number;          // 使用百分比
+  };
 }
 ```
 
@@ -424,11 +450,13 @@ interface PerformanceMetrics {
 
 ```typescript
 enum ErrorType {
-  NETWORK = 'NETWORK',
-  FILE_TOO_LARGE = 'FILE_TOO_LARGE',
-  FILE_TYPE_NOT_ALLOWED = 'FILE_TYPE_NOT_ALLOWED',
-  SERVER_ERROR = 'SERVER_ERROR',
-  UNKNOWN = 'UNKNOWN',
+  NETWORK = 'NETWORK',                           // 网络错误
+  FILE_TOO_LARGE = 'FILE_TOO_LARGE',            // 文件过大
+  FILE_TYPE_NOT_ALLOWED = 'FILE_TYPE_NOT_ALLOWED', // 文件类型不允许
+  SERVER_ERROR = 'SERVER_ERROR',                 // 服务器错误
+  CHUNK_UPLOAD_FAILED = 'CHUNK_UPLOAD_FAILED',   // 分片上传失败
+  FILE_INITIALIZATION_FAILED = 'FILE_INITIALIZATION_FAILED', // 文件初始化失败
+  UNKNOWN = 'UNKNOWN',                          // 未知错误
 }
 ```
 
@@ -481,13 +509,15 @@ const uploader = new ParallelFileUploader({
   onPerformanceUpdate: (metrics) => {
     // 更新UI显示
     document.getElementById('upload-speed').textContent = 
-      ParallelFileUploader.formatSpeed(metrics.uploadSpeed);
+      formatSpeed(metrics.currentSpeed);
     
-    document.getElementById('time-remaining').textContent = 
-      ParallelFileUploader.formatTime(metrics.timeRemaining);
+    if (metrics.estimatedTimeRemaining) {
+      document.getElementById('time-remaining').textContent = 
+        formatTime(metrics.estimatedTimeRemaining);
+    }
     
-    document.getElementById('progress-bar').style.width = 
-      `${(metrics.totalBytesUploaded / totalSize) * 100}%`;
+    const progress = metrics.bytesTransferred / totalBytes * 100;
+    document.getElementById('progress-bar').style.width = `${progress}%`;
   }
 });
 ```
@@ -509,7 +539,7 @@ const uploader = new ParallelFileUploader({
 ```typescript
 const uploader = new ParallelFileUploader({
   enableSpeedLimit: true,
-  speedLimit: 0 // 初始不限速
+  maxUploadSpeed: 0 // 初始不限速
 });
 
 // 根据网络状况动态调整
@@ -518,16 +548,16 @@ function adjustSpeedBasedOnNetwork() {
   if (connection) {
     switch (connection.effectiveType) {
       case '4g':
-        uploader.setSpeedLimit(0); // 不限速
+        uploader.setSpeedLimit(0, false); // 不限速
         break;
       case '3g':
-        uploader.setSpeedLimit(500 * 1024); // 500KB/s
+        uploader.setSpeedLimit(500 * 1024, true); // 500KB/s
         break;
       case '2g':
-        uploader.setSpeedLimit(100 * 1024); // 100KB/s
+        uploader.setSpeedLimit(100 * 1024, true); // 100KB/s
         break;
       default:
-        uploader.setSpeedLimit(200 * 1024); // 200KB/s
+        uploader.setSpeedLimit(200 * 1024, true); // 200KB/s
     }
   }
 }
@@ -542,10 +572,10 @@ parallel-file-uploader/
 │   ├── type.ts               # 类型定义
 │   ├── worker.ts             # Web Worker文件
 │   └── modules/              # 功能模块
+│       ├── index.ts          # 模块导出文件
 │       ├── FileManager.ts    # 文件管理
 │       ├── ChunkManager.ts   # 分片管理
 │       ├── WorkerManager.ts  # Worker管理
-│       ├── UploadManager.ts  # 上传逻辑
 │       ├── PerformanceMonitor.ts # 性能监控
 │       ├── QueuePersistence.ts   # 队列持久化
 │       └── SpeedLimiter.ts   # 速度限制
@@ -581,7 +611,7 @@ app.post('/api/upload/init', async (req, res) => {
   const existingFile = await checkFileExists(fileName);
   if (existingFile) {
     return res.json({ 
-      success: true, 
+      isSuccess: true, 
       data: { 
         skipUpload: true,
         url: existingFile.url 
@@ -597,7 +627,7 @@ app.post('/api/upload/init', async (req, res) => {
     totalParts: Math.ceil(fileSize / CHUNK_SIZE)
   });
   
-  res.json({ success: true, data: session });
+  res.json({ isSuccess: true, data: session });
 });
 ```
 
@@ -612,7 +642,7 @@ app.post('/api/upload/chunk', async (req, res) => {
   const etag = await saveChunk(fileId, partNumber, file.data);
   
   res.json({ 
-    success: true, 
+    isSuccess: true, 
     data: { etag, partNumber }
   });
 });
@@ -628,7 +658,7 @@ app.post('/api/upload/complete', async (req, res) => {
   const fileUrl = await mergeChunks(fileId, parts);
   
   res.json({ 
-    success: true, 
+    isSuccess: true, 
     data: { url: fileUrl }
   });
 });
@@ -644,8 +674,8 @@ app.get('/api/upload/parts/:fileId', async (req, res) => {
   const parts = await getUploadedParts(fileId);
   
   res.json({ 
-    success: true, 
-    data: { parts }
+    isSuccess: true, 
+    data: parts
   });
 });
 ```
@@ -675,13 +705,7 @@ app.use((req, res, next) => {
 
 ### Q: Worker文件加载失败怎么办？
 
-A: 工具会自动降级到主线程模式。您也可以手动禁用Worker：
-
-```typescript
-const uploader = new ParallelFileUploader({
-  useWorker: false
-});
-```
+A: 工具会自动降级到主线程模式。在测试环境中，Worker会自动跳过初始化。
 
 ### Q: 如何优化上传性能？
 
@@ -690,7 +714,7 @@ A:
 1. 调整并发数：根据网络和服务器能力调整 `maxConcurrentFiles` 和 `maxConcurrentChunks`
 2. 优化分片大小：网络好时增大 `chunkSize`，网络差时减小
 3. 使用性能监控：通过 `enablePerformanceMonitor` 监控并调优
-4. 启用Worker：确保 `useWorker: true` 以使用多线程
+4. 启用Worker：确保Worker正常工作以使用多线程
 
 ### Q: 队列持久化有什么限制？
 
@@ -699,6 +723,18 @@ A:
 1. localStorage 通常有 5-10MB 的大小限制
 2. File 对象无法序列化，刷新后需要重新选择文件
 3. 建议只用于保存上传进度，配合UI实现完整的断点续传
+
+### Q: 新功能默认是否开启？
+
+A: 所有新功能（性能监控、队列持久化、速度限制）默认都是关闭的，需要手动启用：
+
+```typescript
+const uploader = new ParallelFileUploader({
+  enablePerformanceMonitor: true,  // 手动启用性能监控
+  enableQueuePersistence: true,    // 手动启用队列持久化
+  enableSpeedLimit: true,          // 手动启用速度限制
+});
+```
 
 ## 📞 联系方式
 
