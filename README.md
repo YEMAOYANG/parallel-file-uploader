@@ -7,11 +7,11 @@
   <a href="https://www.npmjs.com/package/parallel-file-uploader">
     <img src="https://img.shields.io/npm/dm/parallel-file-uploader.svg" alt="npm downloads">
   </a>
-  <a href="https://github.com/yourusername/parallel-file-uploader/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/yourusername/parallel-file-uploader.svg" alt="license">
+  <a href="https://github.com/yemaoyang/parallel-file-uploader/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/yemaoyang/parallel-file-uploader.svg" alt="license">
   </a>
-  <a href="https://coveralls.io/github/yourusername/parallel-file-uploader">
-    <img src="https://coveralls.io/repos/github/yourusername/parallel-file-uploader/badge.svg" alt="coverage">
+  <a href="https://coveralls.io/github/yemaoyang/parallel-file-uploader">
+    <img src="https://coveralls.io/repos/github/yemaoyang/parallel-file-uploader/badge.svg" alt="coverage">
   </a>
 </p>
 
@@ -694,9 +694,9 @@ A:
 
 ## 📞 联系方式
 
-- GitHub Issues: [github.com/yourusername/parallel-file-uploader/issues](https://github.com/yourusername/parallel-file-uploader/issues)
-- Email: <your.email@example.com>
+- GitHub Issues: [github.com/yemaoyang/parallel-file-uploader/issues](https://github.com/yemaoyang/parallel-file-uploader/issues)
+- Email: <346751186@qq.com>
 
 ## 🌟 Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=yourusername/parallel-file-uploader&type=Date)](https://star-history.com/#yourusername/parallel-file-uploader&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=yemaoyang/parallel-file-uploader&type=Date)](https://star-history.com/#yemaoyang/parallel-file-uploader&Date)
