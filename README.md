@@ -27,17 +27,18 @@
 - 📊 **实时进度监控** - 精确到字节的进度跟踪
 - 🎯 **灵活的API设计** - 支持各种自定义配置和回调
 - 🛡️ **文件验证** - 内置文件类型和大小验证
-- 💾 **秒传支持** - 服务端支持时可实现文件秒传
-- 📝 **TypeScript支持** - 完整的类型定义
+- 💾 **队列持久化** - 上传队列持久化到localStorage，页面刷新后可恢复
+- 📝 **完整TypeScript支持** - 全面的类型定义和智能提示
 
-### 🆕 新增功能
+### 🆕 v2.0 新增功能
 
-- 📈 **性能监控** - 实时监控上传速度、内存使用等指标
-- 🚦 **速度限制** - 支持动态调整上传速度限制
-- 💾 **队列持久化** - 支持将上传队列保存到localStorage
-- 🏗️ **模块化架构** - 清晰的模块划分，易于扩展和维护
-- 🧪 **单元测试** - 完善的测试覆盖，保证代码质量
-- 🎨 **错误分类** - 详细的错误类型分类，便于错误处理
+- 📈 **性能监控系统** - 实时监控上传速度、内存使用、网络连接等关键指标
+- 🚦 **智能速度限制** - 使用令牌桶算法实现精确的速度控制
+- 💾 **队列持久化机制** - 支持将上传状态保存到本地存储，支持断点续传
+- 🏗️ **模块化架构重构** - 清晰的模块划分，职责分离，易于扩展和维护
+- 🧪 **完善的单元测试** - 高覆盖率的测试用例，保证代码质量
+- 🎨 **详细错误分类** - 精确的错误类型分类，便于问题诊断和处理
+- 🔧 **Worker管理优化** - 智能的Worker池管理，根据硬件自动调整
 
 ## 📦 安装
 
@@ -115,14 +116,11 @@ const uploader = new ParallelFileUploader({
     '.xlsx'
   ],
   
-  // Worker配置
-  useWorker: true, // 启用Web Worker
-  
   // 新功能配置
-  enablePerformanceMonitor: true,  // 启用性能监控
-  enableQueuePersistence: true,    // 启用队列持久化
-  enableSpeedLimit: true,          // 启用速度限制
-  speedLimit: 1024 * 1024,         // 限制上传速度为1MB/s
+  enablePerformanceMonitor: true,   // 启用性能监控
+  enableQueuePersistence: true,     // 启用队列持久化
+  enableSpeedLimit: true,           // 启用速度限制
+  maxUploadSpeed: 1024 * 1024,      // 限制上传速度为1MB/s
   persistenceKey: 'my-app-uploads', // 自定义持久化键名
   
   // 服务器交互
@@ -167,6 +165,13 @@ const uploader = new ParallelFileUploader({
     return { isSuccess: response.ok, data };
   },
   
+  // 断点续传支持
+  getFilePartsFromServer: async (fileInfo) => {
+    const response = await fetch(`/api/upload/parts/${fileInfo.fileId}`);
+    const data = await response.json();
+    return { isSuccess: response.ok, data: data.parts || [] };
+  },
+  
   // 事件回调
   onFileAdded: (fileInfo) => {
     console.log('文件已添加:', fileInfo.fileName);
@@ -189,9 +194,12 @@ const uploader = new ParallelFileUploader({
   },
   
   // 性能监控回调
-  onPerformanceUpdate: (metrics) => {
-    console.log(`上传速度: ${ParallelFileUploader.formatSpeed(metrics.uploadSpeed)}`);
-    console.log(`预计剩余时间: ${ParallelFileUploader.formatTime(metrics.timeRemaining)}`);
+  onPerformanceUpdate: (performanceData) => {
+    console.log(`当前速度: ${PerformanceMonitor.formatSpeed(performanceData.currentSpeed)}`);
+    console.log(`平均速度: ${PerformanceMonitor.formatSpeed(performanceData.averageSpeed)}`);
+    if (performanceData.estimatedTimeRemaining) {
+      console.log(`预计剩余时间: ${PerformanceMonitor.formatTime(performanceData.estimatedTimeRemaining)}`);
+    }
   }
 });
 ```

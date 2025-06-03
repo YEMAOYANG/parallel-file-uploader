@@ -1,280 +1,270 @@
-import { FileInfo } from '../type'
-
-export interface PerformanceMetrics {
-  uploadSpeed: number  // 当前上传速度（字节/秒）
-  averageSpeed: number  // 平均上传速度（字节/秒）
-  timeRemaining: number  // 预计剩余时间（秒）
-  memoryUsage?: number  // 内存使用量（MB）
-  peakSpeed: number  // 峰值速度（字节/秒）
-  totalBytesUploaded: number  // 总上传字节数
-  startTime: number  // 开始时间
-  activeConnections: number  // 活动连接数
-}
-
-export interface FileMetrics {
-  fileId: string
-  uploadSpeed: number
-  averageSpeed: number
-  bytesUploaded: number
-  startTime: number
-  lastUpdateTime: number
-  lastBytesUploaded: number
+/**
+ * 性能监控数据接口
+ */
+export interface PerformanceData {
+  // 速度相关
+  currentSpeed: number // 当前上传速度 (bytes/s)
+  averageSpeed: number // 平均上传速度 (bytes/s)
+  peakSpeed: number // 峰值速度 (bytes/s)
+  
+  // 内存相关
+  memoryUsage?: {
+    used: number // 已使用内存 (bytes)
+    total: number // 总内存 (bytes)
+    percentage: number // 使用百分比
+  }
+  
+  // 网络相关
+  activeConnections: number // 活跃连接数
+  bytesTransferred: number // 总传输字节数
+  
+  // 时间相关
+  elapsedTime: number // 已用时间 (ms)
+  estimatedTimeRemaining?: number // 预估剩余时间 (ms)
+  
+  // 文件相关
+  activeFiles: number // 活跃文件数
+  totalFiles: number // 总文件数
+  
+  timestamp: number // 时间戳
 }
 
 /**
  * 性能监控器
- * 负责监控上传速度、内存使用等性能指标
+ * 监控上传速度、内存使用、连接数等性能指标
  */
 export class PerformanceMonitor {
-  /** 全局性能指标 */
-  private metrics: PerformanceMetrics = {
-    uploadSpeed: 0,
-    averageSpeed: 0,
-    timeRemaining: 0,
-    peakSpeed: 0,
-    totalBytesUploaded: 0,
-    startTime: Date.now(),
-    activeConnections: 0
-  }
-  
-  /** 每个文件的性能指标 */
-  private fileMetrics: Map<string, FileMetrics> = new Map()
-  
-  /** 速度历史记录（用于计算平均值） */
+  private enabled: boolean = false
+  private startTime: number = 0
+  private lastMeasureTime: number = 0
+  private lastBytesTransferred: number = 0
+  private totalBytesTransferred: number = 0
   private speedHistory: number[] = []
-  private maxHistorySize = 10
-  
-  /** 更新间隔（毫秒） */
-  private updateInterval = 1000
-  
-  /** 定时器 */
-  private updateTimer?: number
-  
-  /** 回调函数 */
-  private onMetricsUpdate?: (metrics: PerformanceMetrics) => void
-  
-  constructor(onMetricsUpdate?: (metrics: PerformanceMetrics) => void) {
-    this.onMetricsUpdate = onMetricsUpdate
+  private peakSpeed: number = 0
+  private activeConnections: number = 0
+  private activeFiles: number = 0
+  private totalFiles: number = 0
+  private maxHistorySize: number = 10
+
+  constructor(enabled: boolean = false) {
+    this.enabled = enabled
+    this.reset()
   }
-  
+
   /**
-   * 开始监控
+   * 启用/禁用性能监控
    */
-  start(): void {
-    if (this.updateTimer) return
-    
-    this.metrics.startTime = Date.now()
-    this.updateTimer = window.setInterval(() => {
-      this.updateMetrics()
-    }, this.updateInterval)
-    
-    // 监控内存使用（如果浏览器支持）
-    this.monitorMemory()
-  }
-  
-  /**
-   * 停止监控
-   */
-  stop(): void {
-    if (this.updateTimer) {
-      clearInterval(this.updateTimer)
-      this.updateTimer = undefined
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled
+    if (enabled && this.startTime === 0) {
+      this.reset()
     }
   }
-  
+
   /**
-   * 记录文件开始上传
+   * 检查是否启用
    */
-  recordFileStart(fileId: string): void {
+  isEnabled(): boolean {
+    return this.enabled
+  }
+
+  /**
+   * 重置监控数据
+   */
+  reset(): void {
+    this.startTime = Date.now()
+    this.lastMeasureTime = this.startTime
+    this.lastBytesTransferred = 0
+    this.totalBytesTransferred = 0
+    this.speedHistory = []
+    this.peakSpeed = 0
+    this.activeConnections = 0
+    this.activeFiles = 0
+    this.totalFiles = 0
+  }
+
+  /**
+   * 记录字节传输
+   */
+  recordBytesTransferred(bytes: number): void {
+    if (!this.enabled) return
+    
+    this.totalBytesTransferred += bytes
+  }
+
+  /**
+   * 设置活跃连接数
+   */
+  setActiveConnections(count: number): void {
+    if (!this.enabled) return
+    
+    this.activeConnections = count
+  }
+
+  /**
+   * 设置文件数量
+   */
+  setFileStats(active: number, total: number): void {
+    if (!this.enabled) return
+    
+    this.activeFiles = active
+    this.totalFiles = total
+  }
+
+  /**
+   * 计算当前速度
+   */
+  private calculateCurrentSpeed(): number {
     const now = Date.now()
-    this.fileMetrics.set(fileId, {
-      fileId,
-      uploadSpeed: 0,
-      averageSpeed: 0,
-      bytesUploaded: 0,
-      startTime: now,
-      lastUpdateTime: now,
-      lastBytesUploaded: 0
-    })
+    const timeDiff = now - this.lastMeasureTime
     
-    this.metrics.activeConnections++
+    if (timeDiff === 0) return 0
+    
+    const bytesDiff = this.totalBytesTransferred - this.lastBytesTransferred
+    const speed = (bytesDiff / timeDiff) * 1000 // bytes per second
+    
+    this.lastMeasureTime = now
+    this.lastBytesTransferred = this.totalBytesTransferred
+    
+    return speed
   }
-  
+
   /**
-   * 记录文件上传进度
+   * 更新速度历史
    */
-  recordFileProgress(fileId: string, bytesUploaded: number): void {
-    const fileMetric = this.fileMetrics.get(fileId)
-    if (!fileMetric) return
+  private updateSpeedHistory(speed: number): void {
+    this.speedHistory.push(speed)
     
-    const now = Date.now()
-    const timeDiff = (now - fileMetric.lastUpdateTime) / 1000  // 转换为秒
-    
-    if (timeDiff > 0) {
-      const bytesDiff = bytesUploaded - fileMetric.lastBytesUploaded
-      const speed = bytesDiff / timeDiff
-      
-      fileMetric.uploadSpeed = speed
-      fileMetric.bytesUploaded = bytesUploaded
-      fileMetric.lastUpdateTime = now
-      fileMetric.lastBytesUploaded = bytesUploaded
-      
-      // 计算平均速度
-      const totalTime = (now - fileMetric.startTime) / 1000
-      if (totalTime > 0) {
-        fileMetric.averageSpeed = bytesUploaded / totalTime
-      }
-    }
-    
-    // 更新总字节数
-    this.updateTotalBytes()
-  }
-  
-  /**
-   * 记录文件上传完成
-   */
-  recordFileComplete(fileId: string): void {
-    this.fileMetrics.delete(fileId)
-    this.metrics.activeConnections = Math.max(0, this.metrics.activeConnections - 1)
-  }
-  
-  /**
-   * 更新总字节数
-   */
-  private updateTotalBytes(): void {
-    let total = 0
-    for (const metric of this.fileMetrics.values()) {
-      total += metric.bytesUploaded
-    }
-    this.metrics.totalBytesUploaded = total
-  }
-  
-  /**
-   * 更新性能指标
-   */
-  private updateMetrics(): void {
-    // 计算当前总速度
-    let currentSpeed = 0
-    for (const metric of this.fileMetrics.values()) {
-      currentSpeed += metric.uploadSpeed
-    }
-    
-    this.metrics.uploadSpeed = currentSpeed
-    
-    // 更新速度历史
-    this.speedHistory.push(currentSpeed)
+    // 保持历史记录在最大长度内
     if (this.speedHistory.length > this.maxHistorySize) {
       this.speedHistory.shift()
     }
     
-    // 计算平均速度
-    if (this.speedHistory.length > 0) {
-      const sum = this.speedHistory.reduce((a, b) => a + b, 0)
-      this.metrics.averageSpeed = sum / this.speedHistory.length
-    }
-    
     // 更新峰值速度
-    if (currentSpeed > this.metrics.peakSpeed) {
-      this.metrics.peakSpeed = currentSpeed
-    }
-    
-    // 计算剩余时间（需要外部提供总大小和已上传大小）
-    // 这里只是占位，实际计算需要在上传器中进行
-    
-    // 触发回调
-    if (this.onMetricsUpdate) {
-      this.onMetricsUpdate(this.metrics)
+    if (speed > this.peakSpeed) {
+      this.peakSpeed = speed
     }
   }
-  
+
   /**
-   * 监控内存使用
+   * 计算平均速度
    */
-  private monitorMemory(): void {
-    if ('memory' in performance && (performance as any).memory) {
-      const memory = (performance as any).memory
-      this.metrics.memoryUsage = memory.usedJSHeapSize / 1024 / 1024  // 转换为MB
+  private calculateAverageSpeed(): number {
+    if (this.speedHistory.length === 0) return 0
+    
+    const sum = this.speedHistory.reduce((acc, speed) => acc + speed, 0)
+    return sum / this.speedHistory.length
+  }
+
+  /**
+   * 获取内存使用情况
+   */
+  private getMemoryUsage(): PerformanceData['memoryUsage'] | undefined {
+    if (typeof window !== 'undefined' && 'performance' in window && 'memory' in window.performance) {
+      const memory = (window.performance as any).memory
+      if (memory) {
+        return {
+          used: memory.usedJSHeapSize,
+          total: memory.totalJSHeapSize,
+          percentage: Math.round((memory.usedJSHeapSize / memory.totalJSHeapSize) * 100)
+        }
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * 计算预估剩余时间
+   */
+  private calculateEstimatedTimeRemaining(currentSpeed: number, remainingBytes: number): number | undefined {
+    if (currentSpeed <= 0 || remainingBytes <= 0) return undefined
+    
+    return Math.round(remainingBytes / currentSpeed * 1000) // 转换为毫秒
+  }
+
+  /**
+   * 获取性能数据
+   */
+  getPerformanceData(remainingBytes: number = 0): PerformanceData {
+    if (!this.enabled) {
+      return {
+        currentSpeed: 0,
+        averageSpeed: 0,
+        peakSpeed: 0,
+        activeConnections: 0,
+        bytesTransferred: 0,
+        elapsedTime: 0,
+        activeFiles: 0,
+        totalFiles: 0,
+        timestamp: Date.now()
+      }
+    }
+
+    const currentSpeed = this.calculateCurrentSpeed()
+    this.updateSpeedHistory(currentSpeed)
+    
+    const now = Date.now()
+    const elapsedTime = now - this.startTime
+    
+    return {
+      currentSpeed,
+      averageSpeed: this.calculateAverageSpeed(),
+      peakSpeed: this.peakSpeed,
+      memoryUsage: this.getMemoryUsage(),
+      activeConnections: this.activeConnections,
+      bytesTransferred: this.totalBytesTransferred,
+      elapsedTime,
+      estimatedTimeRemaining: this.calculateEstimatedTimeRemaining(currentSpeed, remainingBytes),
+      activeFiles: this.activeFiles,
+      totalFiles: this.totalFiles,
+      timestamp: now
     }
   }
-  
+
   /**
-   * 计算剩余时间
-   */
-  calculateTimeRemaining(totalSize: number, uploadedSize: number): number {
-    if (this.metrics.averageSpeed <= 0) return Infinity
-    
-    const remainingBytes = totalSize - uploadedSize
-    const timeRemaining = remainingBytes / this.metrics.averageSpeed
-    
-    this.metrics.timeRemaining = timeRemaining
-    return timeRemaining
-  }
-  
-  /**
-   * 获取当前性能指标
-   */
-  getMetrics(): PerformanceMetrics & { getFileMetrics: (fileId: string) => FileMetrics | undefined } {
-    return { 
-      ...this.metrics,
-      getFileMetrics: (fileId: string) => this.fileMetrics.get(fileId)
-    }
-  }
-  
-  /**
-   * 格式化速度显示
+   * 格式化速度为人类可读格式
    */
   static formatSpeed(bytesPerSecond: number): string {
-    if (bytesPerSecond < 1024) {
-      return `${bytesPerSecond.toFixed(0)} B/s`
-    } else if (bytesPerSecond < 1024 * 1024) {
-      return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`
-    } else {
-      return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`
-    }
-  }
-  
-  /**
-   * 格式化时间显示
-   */
-  static formatTime(seconds: number): string {
-    if (!isFinite(seconds)) return '未知'
+    if (bytesPerSecond === 0) return '0 B/s'
     
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    const secs = Math.floor(seconds % 60)
+    const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+    const base = 1024
+    const unitIndex = Math.floor(Math.log(bytesPerSecond) / Math.log(base))
+    const size = bytesPerSecond / Math.pow(base, unitIndex)
+    
+    return `${size.toFixed(1)} ${units[unitIndex]}`
+  }
+
+  /**
+   * 格式化时间为人类可读格式
+   */
+  static formatTime(milliseconds: number): string {
+    if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`
+    
+    const seconds = Math.floor(milliseconds / 1000)
+    const minutes = Math.floor(seconds / 60)
+    const hours = Math.floor(minutes / 60)
     
     if (hours > 0) {
-      return `${hours}小时${minutes}分钟`
+      return `${hours}h ${minutes % 60}m ${seconds % 60}s`
     } else if (minutes > 0) {
-      return `${minutes}分钟${secs}秒`
+      return `${minutes}m ${seconds % 60}s`
     } else {
-      return `${secs}秒`
+      return `${seconds}s`
     }
   }
-  
+
   /**
-   * 重置监控器
+   * 格式化内存大小为人类可读格式
    */
-  reset(): void {
-    this.metrics = {
-      uploadSpeed: 0,
-      averageSpeed: 0,
-      timeRemaining: 0,
-      peakSpeed: 0,
-      totalBytesUploaded: 0,
-      startTime: Date.now(),
-      activeConnections: 0
-    }
+  static formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 B'
     
-    this.fileMetrics.clear()
-    this.speedHistory = []
-  }
-  
-  /**
-   * 销毁监控器
-   */
-  destroy(): void {
-    this.stop()
-    this.reset()
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    const base = 1024
+    const unitIndex = Math.floor(Math.log(bytes) / Math.log(base))
+    const size = bytes / Math.pow(base, unitIndex)
+    
+    return `${size.toFixed(1)} ${units[unitIndex]}`
   }
 } 

@@ -1,278 +1,318 @@
 import { FileInfo, ChunkInfo, UploadStepEnum } from '../type'
 
-export interface PersistentFileInfo {
+/**
+ * 持久化的文件信息（不包含File对象）
+ */
+interface PersistedFileInfo {
   fileId: string
   fileName: string
   fileSize: number
   uploadedSize: number
   progress: number
   status: UploadStepEnum
-  totalChunks?: number
-  uploadedChunks?: number[]
   mimeType?: string
   lastUpdated?: number
-}
-
-export interface PersistentQueueData {
-  version: string
-  timestamp: number
-  files: PersistentFileInfo[]
+  totalChunks?: number
+  uploadInfo?: {
+    parts?: Array<{
+      etag: string
+      partNumber: number
+      partSize: number
+    }>
+    md5?: string
+    [key: string]: any
+  }
 }
 
 /**
  * 队列持久化管理器
- * 负责将上传队列保存到localStorage，支持断点续传
+ * 将上传队列状态保存到localStorage，支持浏览器刷新后恢复
  */
 export class QueuePersistence {
-  private storageKey: string
-  private version = '1.0.0'
-  private enabled: boolean
-  
-  constructor(storageKey: string = 'parallel-uploader-queue', enabled: boolean = true) {
-    this.storageKey = storageKey
+  private enabled: boolean = false
+  private storageKey: string = 'parallel-uploader-queue'
+  private chunkStorageKey: string = 'parallel-uploader-chunks'
+
+  constructor(enabled: boolean = false, storageKey?: string) {
     this.enabled = enabled
-  }
-  
-  /**
-   * 检查是否支持localStorage
-   */
-  private isStorageAvailable(): boolean {
-    if (!this.enabled) return false
-    
-    try {
-      const test = '__storage_test__'
-      localStorage.setItem(test, test)
-      localStorage.removeItem(test)
-      return true
-    } catch (e) {
-      return false
+    if (storageKey) {
+      this.storageKey = storageKey
+      this.chunkStorageKey = `${storageKey}-chunks`
     }
   }
-  
-  /**
-   * 保存队列到localStorage
-   */
-  saveQueue(files: FileInfo[], uploadedChunks: Map<string, Set<number>>): boolean {
-    if (!this.isStorageAvailable()) return false
-    
-    try {
-      const persistentFiles: PersistentFileInfo[] = files.map(file => {
-        const chunks = uploadedChunks.get(file.fileId)
-        return {
-          fileId: file.fileId,
-          fileName: file.fileName,
-          fileSize: file.fileSize,
-          uploadedSize: file.uploadedSize,
-          progress: file.progress,
-          status: file.status,
-          totalChunks: file.totalChunks,
-          uploadedChunks: chunks ? Array.from(chunks) : [],
-          mimeType: file.mimeType,
-          lastUpdated: file.lastUpdated || Date.now()
-        }
-      })
-      
-      const data: PersistentQueueData = {
-        version: this.version,
-        timestamp: Date.now(),
-        files: persistentFiles
-      }
-      
-      localStorage.setItem(this.storageKey, JSON.stringify(data))
-      return true
-    } catch (error) {
-      console.error('Failed to save queue:', error)
-      return false
-    }
-  }
-  
-  /**
-   * 从localStorage加载队列
-   */
-  loadQueue(): PersistentQueueData | null {
-    if (!this.isStorageAvailable()) return null
-    
-    try {
-      const data = localStorage.getItem(this.storageKey)
-      if (!data) return null
-      
-      const queueData = JSON.parse(data) as PersistentQueueData
-      
-      // 检查版本兼容性
-      if (queueData.version !== this.version) {
-        console.warn('Queue version mismatch, clearing old data')
-        this.clearQueue()
-        return null
-      }
-      
-      // 检查数据是否过期（超过7天）
-      const maxAge = 7 * 24 * 60 * 60 * 1000  // 7天
-      if (Date.now() - queueData.timestamp > maxAge) {
-        console.warn('Queue data expired, clearing')
-        this.clearQueue()
-        return null
-      }
-      
-      return queueData
-    } catch (error) {
-      console.error('Failed to load queue:', error)
-      return null
-    }
-  }
-  
-  /**
-   * 保存单个文件的状态
-   */
-  saveFileState(fileInfo: FileInfo, uploadedChunks?: Set<number>): boolean {
-    if (!this.isStorageAvailable()) return false
-    
-    try {
-      const key = `${this.storageKey}-file-${fileInfo.fileId}`
-      const data = {
-        fileInfo: {
-          fileId: fileInfo.fileId,
-          fileName: fileInfo.fileName,
-          fileSize: fileInfo.fileSize,
-          uploadedSize: fileInfo.uploadedSize,
-          progress: fileInfo.progress,
-          status: fileInfo.status,
-          totalChunks: fileInfo.totalChunks,
-          uploadedChunks: uploadedChunks ? Array.from(uploadedChunks) : [],
-          mimeType: fileInfo.mimeType,
-          lastUpdated: Date.now()
-        },
-        version: this.version,
-        timestamp: Date.now()
-      }
-      
-      localStorage.setItem(key, JSON.stringify(data))
-      return true
-    } catch (error) {
-      console.error('Failed to save file state:', error)
-      return false
-    }
-  }
-  
-  /**
-   * 加载单个文件的状态
-   */
-  loadFileState(fileId: string): { fileInfo: PersistentFileInfo; uploadedChunks: number[] } | null {
-    if (!this.isStorageAvailable()) return null
-    
-    try {
-      const key = `${this.storageKey}-file-${fileId}`
-      const data = localStorage.getItem(key)
-      if (!data) return null
-      
-      const parsed = JSON.parse(data)
-      
-      // 检查版本和过期时间
-      if (parsed.version !== this.version) return null
-      
-      const maxAge = 7 * 24 * 60 * 60 * 1000  // 7天
-      if (Date.now() - parsed.timestamp > maxAge) {
-        this.removeFileState(fileId)
-        return null
-      }
-      
-      return {
-        fileInfo: parsed.fileInfo,
-        uploadedChunks: parsed.fileInfo.uploadedChunks || []
-      }
-    } catch (error) {
-      console.error('Failed to load file state:', error)
-      return null
-    }
-  }
-  
-  /**
-   * 删除单个文件的状态
-   */
-  removeFileState(fileId: string): boolean {
-    if (!this.isStorageAvailable()) return false
-    
-    try {
-      const key = `${this.storageKey}-file-${fileId}`
-      localStorage.removeItem(key)
-      return true
-    } catch (error) {
-      console.error('Failed to remove file state:', error)
-      return false
-    }
-  }
-  
-  /**
-   * 清空队列
-   */
-  clearQueue(): boolean {
-    if (!this.isStorageAvailable()) return false
-    
-    try {
-      // 清除主队列
-      localStorage.removeItem(this.storageKey)
-      
-      // 清除所有文件状态
-      const keysToRemove: string[] = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key && key.startsWith(`${this.storageKey}-file-`)) {
-          keysToRemove.push(key)
-        }
-      }
-      
-      keysToRemove.forEach(key => localStorage.removeItem(key))
-      return true
-    } catch (error) {
-      console.error('Failed to clear queue:', error)
-      return false
-    }
-  }
-  
-  /**
-   * 获取存储使用情况
-   */
-  getStorageInfo(): { used: number; available: number; percentage: number } | null {
-    if (!this.isStorageAvailable()) return null
-    
-    try {
-      // 估算已使用的存储空间
-      let used = 0
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key && key.startsWith(this.storageKey)) {
-          const value = localStorage.getItem(key)
-          if (value) {
-            used += key.length + value.length
-          }
-        }
-      }
-      
-      // localStorage 通常有 5-10MB 的限制
-      const totalSize = 5 * 1024 * 1024  // 假设 5MB
-      const percentage = (used / totalSize) * 100
-      
-      return {
-        used,
-        available: totalSize - used,
-        percentage
-      }
-    } catch (error) {
-      console.error('Failed to get storage info:', error)
-      return null
-    }
-  }
-  
+
   /**
    * 启用/禁用持久化
    */
   setEnabled(enabled: boolean): void {
     this.enabled = enabled
+    if (!enabled) {
+      this.clearAll()
+    }
   }
-  
+
   /**
    * 检查是否启用
    */
   isEnabled(): boolean {
-    return this.enabled && this.isStorageAvailable()
+    return this.enabled
+  }
+
+  /**
+   * 检查localStorage是否可用
+   */
+  private isStorageAvailable(): boolean {
+    if (!this.enabled) return false
+    
+    try {
+      const testKey = '__storage_test__'
+      localStorage.setItem(testKey, 'test')
+      localStorage.removeItem(testKey)
+      return true
+    } catch (e) {
+      return false
+    }
+  }
+
+  /**
+   * 保存文件队列状态
+   */
+  saveQueue(files: FileInfo[]): void {
+    if (!this.isStorageAvailable()) return
+
+    try {
+      const persistedFiles: PersistedFileInfo[] = files.map(file => ({
+        fileId: file.fileId,
+        fileName: file.fileName,
+        fileSize: file.fileSize,
+        uploadedSize: file.uploadedSize,
+        progress: file.progress,
+        status: file.status,
+        mimeType: file.mimeType,
+        lastUpdated: file.lastUpdated,
+        totalChunks: file.totalChunks,
+        uploadInfo: file.uploadInfo
+      }))
+
+      localStorage.setItem(this.storageKey, JSON.stringify(persistedFiles))
+    } catch (error) {
+      console.warn('Failed to save queue to localStorage:', error)
+    }
+  }
+
+  /**
+   * 保存分片状态
+   */
+  saveChunkStatus(fileId: string, uploadedChunks: Set<number>, pendingChunks: Set<number>): void {
+    if (!this.isStorageAvailable()) return
+
+    try {
+      const chunkStatus = {
+        uploaded: Array.from(uploadedChunks),
+        pending: Array.from(pendingChunks),
+        timestamp: Date.now()
+      }
+
+      const allChunkStatus = this.loadAllChunkStatus()
+      allChunkStatus[fileId] = chunkStatus
+      
+      localStorage.setItem(this.chunkStorageKey, JSON.stringify(allChunkStatus))
+    } catch (error) {
+      console.warn('Failed to save chunk status to localStorage:', error)
+    }
+  }
+
+  /**
+   * 加载文件队列状态
+   */
+  loadQueue(): PersistedFileInfo[] {
+    if (!this.isStorageAvailable()) return []
+
+    try {
+      const stored = localStorage.getItem(this.storageKey)
+      if (!stored) return []
+
+      const parsed = JSON.parse(stored)
+      if (!Array.isArray(parsed)) return []
+
+      // 过滤掉过期的记录（超过24小时）
+      const now = Date.now()
+      const maxAge = 24 * 60 * 60 * 1000 // 24小时
+      
+      return parsed.filter((file: PersistedFileInfo) => {
+        if (!file.lastUpdated) return false
+        return (now - file.lastUpdated) <= maxAge
+      })
+    } catch (error) {
+      console.warn('Failed to load queue from localStorage:', error)
+      return []
+    }
+  }
+
+  /**
+   * 加载分片状态
+   */
+  loadChunkStatus(fileId: string): {
+    uploaded: number[]
+    pending: number[]
+  } | null {
+    if (!this.isStorageAvailable()) return null
+
+    try {
+      const allChunkStatus = this.loadAllChunkStatus()
+      const chunkStatus = allChunkStatus[fileId]
+      
+      if (!chunkStatus) return null
+
+      // 检查是否过期（超过24小时）
+      const now = Date.now()
+      const maxAge = 24 * 60 * 60 * 1000
+      if (chunkStatus.timestamp && (now - chunkStatus.timestamp) > maxAge) {
+        this.removeChunkStatus(fileId)
+        return null
+      }
+
+      return {
+        uploaded: chunkStatus.uploaded || [],
+        pending: chunkStatus.pending || []
+      }
+    } catch (error) {
+      console.warn('Failed to load chunk status from localStorage:', error)
+      return null
+    }
+  }
+
+  /**
+   * 加载所有分片状态
+   */
+  private loadAllChunkStatus(): Record<string, any> {
+    try {
+      const stored = localStorage.getItem(this.chunkStorageKey)
+      if (!stored) return {}
+      
+      const parsed = JSON.parse(stored)
+      return typeof parsed === 'object' && parsed !== null ? parsed : {}
+    } catch (error) {
+      return {}
+    }
+  }
+
+  /**
+   * 移除指定文件的记录
+   */
+  removeFile(fileId: string): void {
+    if (!this.isStorageAvailable()) return
+
+    try {
+      // 移除队列中的文件
+      const queue = this.loadQueue()
+      const filteredQueue = queue.filter(file => file.fileId !== fileId)
+      localStorage.setItem(this.storageKey, JSON.stringify(filteredQueue))
+
+      // 移除分片状态
+      this.removeChunkStatus(fileId)
+    } catch (error) {
+      console.warn('Failed to remove file from localStorage:', error)
+    }
+  }
+
+  /**
+   * 移除分片状态
+   */
+  private removeChunkStatus(fileId: string): void {
+    try {
+      const allChunkStatus = this.loadAllChunkStatus()
+      delete allChunkStatus[fileId]
+      localStorage.setItem(this.chunkStorageKey, JSON.stringify(allChunkStatus))
+    } catch (error) {
+      console.warn('Failed to remove chunk status from localStorage:', error)
+    }
+  }
+
+  /**
+   * 清除所有持久化数据
+   */
+  clearAll(): void {
+    if (!this.isStorageAvailable()) return
+
+    try {
+      localStorage.removeItem(this.storageKey)
+      localStorage.removeItem(this.chunkStorageKey)
+    } catch (error) {
+      console.warn('Failed to clear localStorage:', error)
+    }
+  }
+
+  /**
+   * 清理过期数据
+   */
+  cleanupExpiredData(): void {
+    if (!this.isStorageAvailable()) return
+
+    try {
+      // 清理过期的队列数据
+      const queue = this.loadQueue() // loadQueue 已经过滤了过期数据
+      localStorage.setItem(this.storageKey, JSON.stringify(queue))
+
+      // 清理过期的分片数据
+      const allChunkStatus = this.loadAllChunkStatus()
+      const now = Date.now()
+      const maxAge = 24 * 60 * 60 * 1000
+
+      const cleanedChunkStatus: Record<string, any> = {}
+      for (const [fileId, status] of Object.entries(allChunkStatus)) {
+        if (status.timestamp && (now - status.timestamp) <= maxAge) {
+          cleanedChunkStatus[fileId] = status
+        }
+      }
+
+      localStorage.setItem(this.chunkStorageKey, JSON.stringify(cleanedChunkStatus))
+    } catch (error) {
+      console.warn('Failed to cleanup expired data:', error)
+    }
+  }
+
+  /**
+   * 获取存储使用情况
+   */
+  getStorageInfo(): {
+    queueSize: number
+    chunkSize: number
+    totalSize: number
+    estimatedQuota: number
+  } {
+    if (!this.isStorageAvailable()) {
+      return { queueSize: 0, chunkSize: 0, totalSize: 0, estimatedQuota: 0 }
+    }
+
+    try {
+      const queueData = localStorage.getItem(this.storageKey) || ''
+      const chunkData = localStorage.getItem(this.chunkStorageKey) || ''
+      
+      const queueSize = new Blob([queueData]).size
+      const chunkSize = new Blob([chunkData]).size
+      
+      // 估算localStorage总使用量
+      let totalSize = 0
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key) {
+          const value = localStorage.getItem(key) || ''
+          totalSize += new Blob([key + value]).size
+        }
+      }
+
+      // 估算localStorage配额（通常为5-10MB）
+      const estimatedQuota = 5 * 1024 * 1024 // 5MB
+
+      return {
+        queueSize,
+        chunkSize,
+        totalSize,
+        estimatedQuota
+      }
+    } catch (error) {
+      return { queueSize: 0, chunkSize: 0, totalSize: 0, estimatedQuota: 0 }
+    }
   }
 } 

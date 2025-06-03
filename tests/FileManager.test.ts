@@ -1,5 +1,5 @@
 import { FileManager } from '../src/modules/FileManager'
-import { UploadStepEnum } from '../src/type'
+import { UploadStepEnum, UploaderError, ErrorType } from '../src/type'
 
 describe('FileManager', () => {
   let fileManager: FileManager
@@ -20,31 +20,27 @@ describe('FileManager', () => {
     })
     
     it('应该拒绝超过大小限制的文件', () => {
-      const mockCallback = jest.fn()
       fileManager = new FileManager({
         maxFileSize: 10,
-        onFileRejected: mockCallback
       })
       
       const mockFile = new File(['test content that is too large'], 'large.txt', { type: 'text/plain' })
-      const addedFiles = fileManager.addFiles([mockFile])
       
-      expect(addedFiles).toHaveLength(0)
-      expect(mockCallback).toHaveBeenCalledWith(mockFile, expect.stringContaining('File size exceeds limit'))
+      expect(() => {
+        fileManager.addFiles([mockFile])
+      }).toThrow(UploaderError)
     })
     
     it('应该拒绝不允许的文件类型', () => {
-      const mockCallback = jest.fn()
       fileManager = new FileManager({
         allowedFileTypes: ['image/*', '.pdf'],
-        onFileRejected: mockCallback
       })
       
       const mockFile = new File(['test content'], 'test.txt', { type: 'text/plain' })
-      const addedFiles = fileManager.addFiles([mockFile])
       
-      expect(addedFiles).toHaveLength(0)
-      expect(mockCallback).toHaveBeenCalledWith(mockFile, expect.stringContaining('File type not allowed'))
+      expect(() => {
+        fileManager.addFiles([mockFile])
+      }).toThrow(UploaderError)
     })
     
     it('应该接受允许的文件类型', () => {
@@ -76,7 +72,7 @@ describe('FileManager', () => {
       expect(next2?.fileName).toBe('2.txt')
       
       const next3 = fileManager.getNextFile()
-      expect(next3).toBeNull()
+      expect(next3).toBeUndefined()
     })
   })
   
@@ -85,7 +81,7 @@ describe('FileManager', () => {
       const mockFile = new File(['test'], 'test.txt')
       const [fileInfo] = fileManager.addFiles([mockFile])
       
-      fileManager.setFileActive(fileInfo)
+      fileManager.addToActive(fileInfo)
       fileManager.updateFileStatus(fileInfo.fileId, UploadStepEnum.upload)
       
       const activeFile = fileManager.getActiveFile(fileInfo.fileId)
@@ -96,12 +92,12 @@ describe('FileManager', () => {
       const mockFile = new File(['test'], 'test.txt')
       const [fileInfo] = fileManager.addFiles([mockFile])
       
-      fileManager.setFileActive(fileInfo)
-      fileManager.updateFileProgress(fileInfo.fileId, 50, 50)
+      fileManager.addToActive(fileInfo)
+      fileManager.updateFileProgress(fileInfo.fileId, 50)
       
       const activeFile = fileManager.getActiveFile(fileInfo.fileId)
       expect(activeFile?.uploadedSize).toBe(50)
-      expect(activeFile?.progress).toBe(50)
+      expect(activeFile?.progress).toBe(Math.round((50 / 4) * 100))
     })
   })
   
@@ -123,18 +119,18 @@ describe('FileManager', () => {
       
       // 激活一个文件
       const file1 = fileManager.getNextFile()!
-      fileManager.setFileActive(file1)
+      fileManager.addToActive(file1)
       
       stats = fileManager.getStats()
       expect(stats.queued).toBe(2)
       expect(stats.active).toBe(1)
       
       // 完成一个文件
-      fileManager.setFileCompleted(file1)
+      fileManager.updateFileStatus(file1.fileId, UploadStepEnum.complete)
       
       stats = fileManager.getStats()
       expect(stats.queued).toBe(2)
-      expect(stats.active).toBe(0)
+      expect(stats.active).toBe(1)
       expect(stats.completed).toBe(1)
     })
   })

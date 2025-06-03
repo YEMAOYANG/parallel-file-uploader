@@ -12,9 +12,10 @@ console.log('类型:', typeof ParallelFileUploader)
 
 // 测试2: 创建实例
 const uploader = new ParallelFileUploader({
-  useWorker: true,
-  maxConcurrent: 3,
+  maxConcurrentFiles: 3,
+  maxConcurrentChunks: 3,
   chunkSize: 1024 * 1024,
+  enablePerformanceMonitor: true,
   
   // 模拟回调
   sendFileInfoToServer: async (fileInfo) => {
