@@ -117,9 +117,10 @@ describe('FileManager', () => {
       expect(stats.active).toBe(0)
       expect(stats.completed).toBe(0)
       
-      // 激活一个文件
+      // 激活一个文件并设置为上传状态
       const file1 = fileManager.getNextFile()!
       fileManager.addToActive(file1)
+      fileManager.updateFileStatus(file1.fileId, UploadStepEnum.upload)
       
       stats = fileManager.getStats()
       expect(stats.queued).toBe(2)
@@ -130,7 +131,7 @@ describe('FileManager', () => {
       
       stats = fileManager.getStats()
       expect(stats.queued).toBe(2)
-      expect(stats.active).toBe(1)
+      expect(stats.active).toBe(0) // 完成状态的文件不再是active
       expect(stats.completed).toBe(1)
     })
   })

@@ -19,40 +19,40 @@ describe('ChunkManager', () => {
     file: new File([''], 'test.txt')
   })
   
-  describe('createChunks', () => {
+  describe('prepareChunkQueue', () => {
     it('应该正确创建文件分片', () => {
       const fileInfo = createMockFileInfo(chunkSize * 2.5) // 2.5MB文件
-      const chunks = chunkManager.createChunks(fileInfo)
+      chunkManager.prepareChunkQueue(fileInfo)
       
-      expect(chunks).toHaveLength(3)
       expect(fileInfo.totalChunks).toBe(3)
       
-      // 检查第一个分片
-      expect(chunks[0].partNumber).toBe(1)
-      expect(chunks[0].start).toBe(0)
-      expect(chunks[0].end).toBe(chunkSize)
-      expect(chunks[0].partSize).toBe(chunkSize)
+      // 检查分片队列
+      expect(chunkManager.getRemainingChunkCount(fileInfo.fileId)).toBe(3)
       
-      // 检查最后一个分片
-      expect(chunks[2].partNumber).toBe(3)
-      expect(chunks[2].start).toBe(chunkSize * 2)
-      expect(chunks[2].end).toBe(fileInfo.fileSize)
-      expect(chunks[2].partSize).toBe(fileInfo.fileSize - chunkSize * 2)
+      // 获取第一个分片检查
+      const firstChunk = chunkManager.getNextChunk(fileInfo.fileId)
+      expect(firstChunk?.partNumber).toBe(1)
+      expect(firstChunk?.start).toBe(0)
+      expect(firstChunk?.end).toBe(chunkSize)
+      expect(firstChunk?.partSize).toBe(chunkSize)
     })
     
     it('应该处理小于分片大小的文件', () => {
       const fileInfo = createMockFileInfo(500 * 1024) // 500KB文件
-      const chunks = chunkManager.createChunks(fileInfo)
+      chunkManager.prepareChunkQueue(fileInfo)
       
-      expect(chunks).toHaveLength(1)
-      expect(chunks[0].partSize).toBe(fileInfo.fileSize)
+      expect(fileInfo.totalChunks).toBe(1)
+      expect(chunkManager.getRemainingChunkCount(fileInfo.fileId)).toBe(1)
+      
+      const chunk = chunkManager.getNextChunk(fileInfo.fileId)
+      expect(chunk?.partSize).toBe(fileInfo.fileSize)
     })
   })
   
   describe('resumeFromExistingParts', () => {
     it('应该正确恢复已上传的分片', () => {
       const fileInfo = createMockFileInfo(chunkSize * 3)
-      chunkManager.createChunks(fileInfo)
+      chunkManager.prepareChunkQueue(fileInfo)
       
       const existingParts = [
         { partNumber: 1, etag: 'etag1', partSize: chunkSize },
@@ -61,10 +61,9 @@ describe('ChunkManager', () => {
       
       chunkManager.resumeFromExistingParts(fileInfo, existingParts)
       
-      expect(fileInfo.uploadedSize).toBe(chunkSize * 2)
-      expect(fileInfo.progress).toBe(67) // 约66.67%
-      expect(chunkManager.getUploadedCount(fileInfo.fileId)).toBe(2)
-      expect(chunkManager.getQueueLength(fileInfo.fileId)).toBe(1) // 只剩第2个分片
+      const uploadedSize = chunkManager.calculateUploadedSize(fileInfo)
+      expect(uploadedSize).toBe(chunkSize * 2)
+      expect(chunkManager.getRemainingChunkCount(fileInfo.fileId)).toBe(1) // 只剩第2个分片
     })
   })
   
@@ -73,81 +72,100 @@ describe('ChunkManager', () => {
     
     beforeEach(() => {
       fileInfo = createMockFileInfo(chunkSize * 3)
-      chunkManager.createChunks(fileInfo)
+      chunkManager.prepareChunkQueue(fileInfo)
     })
     
     it('应该正确标记分片为待处理状态', () => {
-      chunkManager.markChunkPending(fileInfo.fileId, 1)
-      expect(chunkManager.getPendingCount(fileInfo.fileId)).toBe(1)
+      chunkManager.addToPending(fileInfo.fileId, 1)
+      expect(chunkManager.getPendingChunkCount(fileInfo.fileId)).toBe(1)
     })
     
     it('应该正确标记分片上传成功', () => {
-      chunkManager.markChunkPending(fileInfo.fileId, 1)
-      chunkManager.markChunkSuccess(fileInfo.fileId, 1)
+      chunkManager.addToPending(fileInfo.fileId, 1)
+      chunkManager.markChunkCompleted(fileInfo.fileId, 1)
       
-      expect(chunkManager.getPendingCount(fileInfo.fileId)).toBe(0)
-      expect(chunkManager.getUploadedCount(fileInfo.fileId)).toBe(1)
-      expect(chunkManager.getQueueLength(fileInfo.fileId)).toBe(2)
+      expect(chunkManager.getPendingChunkCount(fileInfo.fileId)).toBe(0)
+      const uploadedSize = chunkManager.calculateUploadedSize(fileInfo)
+      expect(uploadedSize).toBe(chunkSize)
     })
     
-    it('应该正确标记分片上传失败', () => {
-      chunkManager.markChunkPending(fileInfo.fileId, 1)
-      chunkManager.markChunkError(fileInfo.fileId, 1)
+    it('应该正确处理分片重试', () => {
+      const chunk = chunkManager.getNextChunk(fileInfo.fileId)!
+      chunkManager.addToPending(fileInfo.fileId, chunk.partNumber)
       
-      expect(chunkManager.getPendingCount(fileInfo.fileId)).toBe(0)
+      // 标记为失败并重新加入队列
+      chunkManager.requeueChunk(fileInfo.fileId, chunk)
       
-      const chunks = chunkManager.getNextChunks(fileInfo.fileId, 3)
-      const errorChunk = chunks.find(c => c.partNumber === 1)
-      expect(errorChunk?.status).toBe(ChunkStatusEnum.error)
-      expect(errorChunk?.retryCount).toBe(1)
+      expect(chunkManager.getPendingChunkCount(fileInfo.fileId)).toBe(0)
+      expect(chunkManager.getRemainingChunkCount(fileInfo.fileId)).toBe(3) // 重新加入队列
+      
+      const requeuedChunk = chunkManager.getNextChunk(fileInfo.fileId)
+      expect(requeuedChunk?.partNumber).toBe(1)
+      expect(requeuedChunk?.retryCount).toBe(1)
     })
   })
   
-  describe('getNextChunks', () => {
+  describe('getNextChunk', () => {
     it('应该按顺序返回待上传的分片', () => {
       const fileInfo = createMockFileInfo(chunkSize * 5)
-      chunkManager.createChunks(fileInfo)
+      chunkManager.prepareChunkQueue(fileInfo)
       
-      const chunks = chunkManager.getNextChunks(fileInfo.fileId, 3)
+      const chunk1 = chunkManager.getNextChunk(fileInfo.fileId)
+      const chunk2 = chunkManager.getNextChunk(fileInfo.fileId)
+      const chunk3 = chunkManager.getNextChunk(fileInfo.fileId)
       
-      expect(chunks).toHaveLength(3)
-      expect(chunks[0].partNumber).toBe(1)
-      expect(chunks[1].partNumber).toBe(2)
-      expect(chunks[2].partNumber).toBe(3)
+      expect(chunk1?.partNumber).toBe(1)
+      expect(chunk2?.partNumber).toBe(2)
+      expect(chunk3?.partNumber).toBe(3)
     })
     
-    it('应该跳过已标记为待处理的分片', () => {
-      const fileInfo = createMockFileInfo(chunkSize * 5)
-      chunkManager.createChunks(fileInfo)
+    it('应该正确处理队列耗尽', () => {
+      const fileInfo = createMockFileInfo(chunkSize)
+      chunkManager.prepareChunkQueue(fileInfo)
       
-      chunkManager.markChunkPending(fileInfo.fileId, 2)
-      chunkManager.markChunkPending(fileInfo.fileId, 3)
+      const chunk1 = chunkManager.getNextChunk(fileInfo.fileId)
+      expect(chunk1?.partNumber).toBe(1)
       
-      const chunks = chunkManager.getNextChunks(fileInfo.fileId, 3)
-      
-      expect(chunks).toHaveLength(3)
-      expect(chunks[0].partNumber).toBe(1)
-      expect(chunks[1].partNumber).toBe(4)
-      expect(chunks[2].partNumber).toBe(5)
+      const chunk2 = chunkManager.getNextChunk(fileInfo.fileId)
+      expect(chunk2).toBeUndefined()
     })
   })
   
   describe('isAllChunksCompleted', () => {
     it('应该正确判断所有分片是否完成', () => {
       const fileInfo = createMockFileInfo(chunkSize * 2)
-      chunkManager.createChunks(fileInfo)
+      chunkManager.prepareChunkQueue(fileInfo)
       
       expect(chunkManager.isAllChunksCompleted(fileInfo.fileId)).toBe(false)
       
-      chunkManager.markChunkPending(fileInfo.fileId, 1)
-      chunkManager.markChunkSuccess(fileInfo.fileId, 1)
+      // 上传第一个分片
+      const chunk1 = chunkManager.getNextChunk(fileInfo.fileId)!
+      chunkManager.addToPending(fileInfo.fileId, chunk1.partNumber)
+      chunkManager.markChunkCompleted(fileInfo.fileId, chunk1.partNumber)
       
       expect(chunkManager.isAllChunksCompleted(fileInfo.fileId)).toBe(false)
       
-      chunkManager.markChunkPending(fileInfo.fileId, 2)
-      chunkManager.markChunkSuccess(fileInfo.fileId, 2)
+      // 上传第二个分片
+      const chunk2 = chunkManager.getNextChunk(fileInfo.fileId)!
+      chunkManager.addToPending(fileInfo.fileId, chunk2.partNumber)
+      chunkManager.markChunkCompleted(fileInfo.fileId, chunk2.partNumber)
       
       expect(chunkManager.isAllChunksCompleted(fileInfo.fileId)).toBe(true)
+    })
+  })
+  
+  describe('cleanup', () => {
+    it('应该清理所有分片数据', () => {
+      const fileInfo = createMockFileInfo(chunkSize * 2)
+      chunkManager.prepareChunkQueue(fileInfo)
+      chunkManager.addToPending(fileInfo.fileId, 1)
+      chunkManager.markChunkCompleted(fileInfo.fileId, 1)
+      
+      chunkManager.cleanup(fileInfo.fileId)
+      
+      expect(chunkManager.getRemainingChunkCount(fileInfo.fileId)).toBe(0)
+      expect(chunkManager.getPendingChunkCount(fileInfo.fileId)).toBe(0)
+      expect(chunkManager.calculateUploadedSize(fileInfo)).toBe(0)
     })
   })
 }) 
