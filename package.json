@@ -1,6 +1,6 @@
 {
   "name": "parallel-file-uploader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "高性能并行文件上传工具，支持大文件分片上传、断点续传、Web Worker多线程处理",
   "main": "lib/index.js",
   "module": "lib/index.esm.js",
