@@ -366,12 +366,224 @@ uploader.setQueuePersistence(false);
 
 #### `ParallelFileUploader.calculateFileMD5(file: File, chunkSize?: number, onProgress?: Function): Promise<string>`
 
-计算文件的MD5哈希值。
+计算文件的MD5哈希值，支持大文件分片计算，避免内存溢出。
+
+**参数说明：**
+
+| 参数 | 类型 | 默认值 | 必填 | 说明 |
+|------|------|--------|------|------|
+| `file` | `File` | - | ✓ | 要计算MD5的文件对象 |
+| `chunkSize` | `number` | `2097152` (2MB) | ✗ | 分片大小（字节），用于大文件分片计算 |
+| `onProgress` | `Function` | - | ✗ | 进度回调函数，参数为进度百分比(0-100) |
+
+**返回值：**
+
+- `Promise<string>` - 返回32位小写的MD5哈希值
+
+**使用场景：**
+
+1. **文件秒传** - 上传前计算MD5，检查服务器是否已存在相同文件
+2. **文件完整性校验** - 确保上传过程中文件未损坏
+3. **重复文件检测** - 避免上传重复文件
+4. **断点续传** - 通过MD5标识唯一文件
+
+**基础用法：**
 
 ```typescript
-const md5 = await ParallelFileUploader.calculateFileMD5(file, 2097152, (progress) => {
-  console.log(`MD5计算进度: ${progress}%`);
+// 简单计算文件MD5
+const file = document.getElementById('file-input').files[0];
+const md5 = await ParallelFileUploader.calculateFileMD5(file);
+console.log('文件MD5:', md5); // 输出: "d41d8cd98f00b204e9800998ecf8427e"
+```
+
+**带进度回调的用法：**
+
+```typescript
+const file = document.getElementById('file-input').files[0];
+
+const md5 = await ParallelFileUploader.calculateFileMD5(
+  file,
+  1024 * 1024, // 1MB分片
+  (progress) => {
+    console.log(`MD5计算进度: ${progress.toFixed(1)}%`);
+    // 更新UI进度条
+    document.getElementById('md5-progress').style.width = `${progress}%`;
+  }
+);
+
+console.log('计算完成，MD5值:', md5);
+```
+
+**实际应用示例：**
+
+```typescript
+// 文件秒传实现
+async function checkFileExists(file) {
+  // 显示MD5计算进度
+  const progressBar = document.getElementById('md5-progress');
+  const statusText = document.getElementById('status-text');
+  
+  statusText.textContent = '正在计算文件指纹...';
+  
+  try {
+    const md5 = await ParallelFileUploader.calculateFileMD5(
+      file,
+      2 * 1024 * 1024, // 2MB分片
+      (progress) => {
+        progressBar.style.width = `${progress}%`;
+        statusText.textContent = `计算文件指纹: ${progress.toFixed(1)}%`;
+      }
+    );
+    
+    // 检查服务器是否已存在相同文件
+    const response = await fetch('/api/file/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        md5, 
+        fileName: file.name,
+        fileSize: file.size 
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (result.exists) {
+      statusText.textContent = '文件已存在，秒传成功！';
+      return { skipUpload: true, url: result.url };
+    } else {
+      statusText.textContent = '开始上传文件...';
+      return { skipUpload: false, md5 };
+    }
+    
+  } catch (error) {
+    console.error('MD5计算失败:', error);
+    statusText.textContent = 'MD5计算失败，将直接上传';
+    return { skipUpload: false, md5: null };
+  }
+}
+
+// 在上传器中使用
+const uploader = new ParallelFileUploader({
+  sendFileInfoToServer: async (fileInfo) => {
+    // 先检查文件是否存在
+    const checkResult = await checkFileExists(fileInfo.file);
+    
+    if (checkResult.skipUpload) {
+      // 秒传成功
+      return { 
+        isSuccess: true, 
+        data: { 
+          skipUpload: true, 
+          url: checkResult.url 
+        } 
+      };
+    }
+    
+    // 正常上传流程，携带MD5
+    const response = await fetch('/api/upload/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: fileInfo.fileName,
+        fileSize: fileInfo.fileSize,
+        fileId: fileInfo.fileId,
+        md5: checkResult.md5 // 携带预计算的MD5
+      })
+    });
+    
+    const data = await response.json();
+    return { isSuccess: response.ok, data };
+  }
 });
+```
+
+**大文件处理示例：**
+
+```typescript
+// 处理大文件（如视频文件）
+async function calculateLargeFileMD5(file) {
+  const fileSize = file.size;
+  const fileSizeText = formatFileSize(fileSize);
+  
+  console.log(`开始计算大文件MD5: ${file.name} (${fileSizeText})`);
+  
+  const startTime = Date.now();
+  
+  const md5 = await ParallelFileUploader.calculateFileMD5(
+    file,
+    5 * 1024 * 1024, // 5MB分片，适合大文件
+    (progress) => {
+      const elapsed = Date.now() - startTime;
+      const estimated = elapsed / (progress / 100);
+      const remaining = estimated - elapsed;
+      
+      console.log(`MD5计算: ${progress.toFixed(1)}% (预计剩余 ${formatTime(remaining)})`);
+    }
+  );
+  
+  const totalTime = Date.now() - startTime;
+  console.log(`MD5计算完成: ${md5} (耗时 ${formatTime(totalTime)})`);
+  
+  return md5;
+}
+
+// 工具函数
+function formatFileSize(bytes) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = bytes;
+  let unitIndex = 0;
+  
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  
+  return `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function formatTime(milliseconds) {
+  const seconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  
+  if (hours > 0) {
+    return `${hours}小时${minutes % 60}分钟`;
+  } else if (minutes > 0) {
+    return `${minutes}分钟${seconds % 60}秒`;
+  } else {
+    return `${seconds}秒`;
+  }
+}
+```
+
+**注意事项：**
+
+1. **内存占用** - 使用分片计算避免大文件一次性加载到内存
+2. **计算时间** - 大文件MD5计算可能耗时较长，建议显示进度
+3. **异步处理** - 方法返回Promise，注意正确处理异步调用
+4. **错误处理** - 文件读取失败时会抛出异常，建议用try-catch包装
+5. **分片大小** - 分片过小会影响计算效率，过大可能占用过多内存，建议1-5MB
+
+**性能建议：**
+
+```typescript
+// 根据文件大小动态调整分片大小
+function getOptimalChunkSize(fileSize) {
+  if (fileSize < 10 * 1024 * 1024) {        // < 10MB
+    return 1024 * 1024;                      // 1MB分片
+  } else if (fileSize < 100 * 1024 * 1024) { // < 100MB
+    return 2 * 1024 * 1024;                  // 2MB分片
+  } else if (fileSize < 1024 * 1024 * 1024) { // < 1GB
+    return 5 * 1024 * 1024;                  // 5MB分片
+  } else {                                   // >= 1GB
+    return 10 * 1024 * 1024;                 // 10MB分片
+  }
+}
+
+// 使用动态分片大小
+const optimalChunkSize = getOptimalChunkSize(file.size);
+const md5 = await ParallelFileUploader.calculateFileMD5(file, optimalChunkSize);
 ```
 
 ### 事件回调
