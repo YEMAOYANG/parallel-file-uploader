@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Worker功能测试</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .log {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 5px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 14px;
+      white-space: pre-wrap;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      margin: 10px 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    input[type="file"] {
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Worker功能测试</h1>
+  
+  <div>
+    <input type="file" id="fileInput" multiple accept="*/*">
+    <br>
+    <button onclick="testWorkerInitialization()">测试Worker初始化</button>
+    <button onclick="testFileUpload()">测试文件上传</button>
+    <button onclick="clearLog()">清空日志</button>
+  </div>
+  
+  <h3>日志输出：</h3>
+  <div id="log" class="log"></div>
+
+  <script type="module">
+    // 导入模块（需要适配实际的构建输出）
+    let ParallelFileUploader;
+    
+    // 简化版的上传器，只测试Worker功能
+    function log(message) {
+      const logDiv = document.getElementById('log');
+      const timestamp = new Date().toLocaleTimeString();
+      logDiv.textContent += `[${timestamp}] ${message}\n`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    // 测试Worker初始化
+    window.testWorkerInitialization = function() {
+      log('开始测试Worker初始化...');
+      
+      try {
+        // 简单测试Worker是否支持
+        if (typeof Worker === 'undefined') {
+          log('❌ 浏览器不支持Web Worker');
+          return;
+        }
+        
+        log('✅ 浏览器支持Web Worker');
+        
+        // 测试inline Worker创建
+        const workerCode = `
+          const ctx = self;
+          ctx.onmessage = function(e) {
+            if (e.data.type === 'test') {
+              ctx.postMessage({ type: 'response', message: 'Worker测试成功！' });
+            }
+          };
+          ctx.postMessage({ type: 'ready' });
+        `;
+        
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(blob);
+        const worker = new Worker(workerUrl);
+        
+        worker.onmessage = function(e) {
+          if (e.data.type === 'ready') {
+            log('✅ Worker创建成功，发送测试消息...');
+            worker.postMessage({ type: 'test' });
+          } else if (e.data.type === 'response') {
+            log(`✅ ${e.data.message}`);
+            worker.terminate();
+            URL.revokeObjectURL(workerUrl);
+          }
+        };
+        
+        worker.onerror = function(error) {
+          log(`❌ Worker错误: ${error.message || error.type}`);
+          URL.revokeObjectURL(workerUrl);
+        };
+        
+      } catch (error) {
+        log(`❌ Worker初始化失败: ${error.message}`);
+      }
+    };
+
+    // 测试文件上传（模拟）
+    window.testFileUpload = function() {
+      const fileInput = document.getElementById('fileInput');
+      const files = fileInput.files;
+      
+      if (files.length === 0) {
+        log('❌ 请先选择文件');
+        return;
+      }
+      
+      log(`开始测试${files.length}个文件的上传...`);
+      
+      Array.from(files).forEach((file, index) => {
+        log(`文件 ${index + 1}: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+        
+        // 模拟文件分片
+        const chunkSize = 1024 * 1024; // 1MB
+        const chunks = Math.ceil(file.size / chunkSize);
+        log(`  - 将分成 ${chunks} 个分片`);
+        
+        // 模拟Worker处理
+        for (let i = 0; i < Math.min(chunks, 3); i++) {
+          const start = i * chunkSize;
+          const end = Math.min(start + chunkSize, file.size);
+          const chunkBlob = file.slice(start, end);
+          
+          log(`  - 分片 ${i + 1}: ${start} - ${end} (${(chunkBlob.size / 1024).toFixed(2)} KB)`);
+        }
+        
+        if (chunks > 3) {
+          log(`  - ... 还有 ${chunks - 3} 个分片`);
+        }
+      });
+      
+      log('✅ 文件分片测试完成');
+    };
+
+    // 清空日志
+    window.clearLog = function() {
+      document.getElementById('log').textContent = '';
+    };
+
+    // 页面加载时显示环境信息
+    window.addEventListener('load', function() {
+      log('=== Worker功能测试页面 ===');
+      log(`浏览器: ${navigator.userAgent}`);
+      log(`Worker支持: ${typeof Worker !== 'undefined' ? '✅' : '❌'}`);
+      log(`CPU核心数: ${navigator.hardwareConcurrency || '未知'}`);
+      log('------------------------');
+    });
+  </script>
+</body>
+</html> 
