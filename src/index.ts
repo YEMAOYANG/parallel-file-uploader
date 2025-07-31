@@ -22,6 +22,24 @@ import {
 } from './modules'
 
 /**
+ * 🔧 格式化文件大小
+ */
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+/**
+ * 🔧 格式化上传速度
+ */
+function formatSpeed(bytesPerSecond: number): string {
+  return formatFileSize(bytesPerSecond) + '/s'
+}
+
+/**
  * 并行文件上传器类
  *
  * 主要特性：
@@ -34,6 +52,7 @@ import {
  * - 速度限制
  * - 性能监控
  * - 队列持久化
+ * - 🔧 增强的错误处理和兼容性
  *
  * @example
  * ```typescript
@@ -44,6 +63,8 @@ import {
  *   maxUploadSpeed: 1024 * 1024, // 1MB/s
  *   enablePerformanceMonitor: true,
  *   enableQueuePersistence: true,
+ *   allowedFileTypes: ['*'], // 🔧 支持通配符
+ *   debugMode: true, // 🔧 启用调试模式
  *   onFileProgress: (fileInfo) => {
  *     console.log(`${fileInfo.fileName}: ${fileInfo.progress}%`)
  *   }
@@ -66,6 +87,9 @@ export class ParallelFileUploader {
   private maxConcurrentChunks: number
   private maxRetries: number
   private uploadPartUrl = ''
+  
+  // 🔧 调试模式
+  private debugMode: boolean = false
 
   // 回调函数
   private onFileAdded?: (fileInfo: FileInfo) => void
@@ -97,6 +121,9 @@ export class ParallelFileUploader {
    * @param options 配置选项
    */
   constructor(options: ParallelFileUploaderOptions = {}) {
+    // 🔧 启用调试模式
+    this.debugMode = options.debugMode || false
+    
     // 设置基本配置
     this.maxConcurrentFiles = options.maxConcurrentFiles || 3
     this.maxConcurrentChunks = options.maxConcurrentChunks || 3
@@ -105,6 +132,9 @@ export class ParallelFileUploader {
     if (options.uploadPartUrl) {
       this.uploadPartUrl = options.uploadPartUrl
     }
+
+    // 🔧 配置验证和优化建议
+    this.validateAndOptimizeConfig(options)
 
     // 初始化模块
     this.fileManager = new FileManager({
@@ -155,16 +185,30 @@ export class ParallelFileUploader {
 
     // 加载持久化队列
     this.loadPersistedQueue()
+
+    // 🔧 输出初始化完成信息
+    if (this.debugMode) {
+      this.logInitializationInfo()
+    }
   }
 
   /**
    * 添加文件到上传队列
    */
   addFiles(files: File[] | FileList): void {
-    console.log('Adding files to queue')
+    console.log(`📂 添加 ${files.length} 个文件到队列`)
 
     try {
       const addedFiles = this.fileManager.addFiles(files)
+      
+      // 🔧 输出添加成功的文件信息
+      if (this.debugMode && addedFiles.length > 0) {
+        console.log('✅ 成功添加文件:', addedFiles.map(f => ({
+          name: f.fileName,
+          size: formatFileSize(f.fileSize),
+          type: f.mimeType || '未知'
+        })))
+      }
       
       // 触发文件添加回调
       for (const fileInfo of addedFiles) {
@@ -179,10 +223,33 @@ export class ParallelFileUploader {
       // 开始处理队列
       this.processFileQueue()
     } catch (error) {
+      // 🔧 增强的错误处理
+      console.error('❌ 添加文件失败:', error)
+      
       if (error instanceof UploaderError && this.onFileRejected) {
-        // 这里需要从error中获取原始文件，暂时使用空的File对象
+        // 尝试从错误信息中提取文件信息
+        const errorMessage = error.message || '未知错误'
+        
+        // 创建一个虚拟文件对象用于回调
         const dummyFile = new File([''], 'unknown')
-        this.onFileRejected(dummyFile, error.message)
+        
+        // 如果可能，尝试从 files 中找到实际的文件
+        let rejectedFile = dummyFile
+        if (files && files.length > 0) {
+          rejectedFile = Array.from(files)[0] // 假设是第一个文件出错
+        }
+        
+        this.onFileRejected(rejectedFile, errorMessage)
+      } else {
+        // 如果没有 onFileRejected 回调，输出详细错误
+        console.error('❌ 文件验证失败，但未配置 onFileRejected 回调。错误详情:', {
+          error: error instanceof Error ? error.message : String(error),
+          files: Array.from(files).map(f => ({
+            name: f.name,
+            size: formatFileSize(f.size),
+            type: f.type || '未知'
+          }))
+        })
       }
     }
   }
@@ -213,6 +280,11 @@ export class ParallelFileUploader {
   private async initFileUpload(fileInfo: FileInfo): Promise<void> {
     fileInfo.status = UploadStepEnum.beforeUpload
 
+    // 🔧 输出初始化信息
+    if (this.debugMode) {
+      console.log(`🔄 初始化文件上传: ${fileInfo.fileName} (${formatFileSize(fileInfo.fileSize)})`)
+    }
+
     // 准备分片队列
     this.chunkManager.prepareChunkQueue(fileInfo)
 
@@ -228,7 +300,7 @@ export class ParallelFileUploader {
 
       // 检查文件是否已存在（秒传）
       if (result.data && result.data.skipUpload) {
-        console.log('File already exists, skipping upload', result.data)
+        console.log('🚀 文件已存在，实现秒传', result.data)
         fileInfo.status = UploadStepEnum.complete
 
         if (this.onFileSuccess) {
@@ -256,12 +328,12 @@ export class ParallelFileUploader {
               partsResult.data.length > 1
 
             if (!hasInvalidParts && !hasAllSameEtag) {
-              console.log('Resuming from existing parts', partsResult.data)
+              console.log('🔄 从已有分片恢复上传', partsResult.data)
               this.chunkManager.resumeFromExistingParts(fileInfo, partsResult.data)
             }
           }
         } catch (error) {
-          console.warn('Failed to get existing file parts:', error)
+          console.warn('⚠️ 获取已有分片失败:', error)
         }
       }
     }
@@ -273,6 +345,9 @@ export class ParallelFileUploader {
    * 开始上传文件
    */
   private uploadFile(fileInfo: FileInfo): void {
+    if (this.debugMode) {
+      console.log(`📤 开始上传文件: ${fileInfo.fileName}`)
+    }
     this.processChunkQueue(fileInfo.fileId)
   }
 
@@ -676,13 +751,22 @@ export class ParallelFileUploader {
   }
 
   /**
-   * 处理文件错误
+   * 🔧 增强的错误处理方法
    */
   private handleFileError(fileInfo: FileInfo, error: Error): void {
     const { fileId } = fileInfo
 
     this.fileManager.updateFileStatus(fileId, UploadStepEnum.error)
     fileInfo.errorMessage = error.message
+
+    // 🔧 输出详细的错误信息
+    console.error(`❌ 文件上传失败: ${fileInfo.fileName}`, {
+      fileId,
+      fileName: fileInfo.fileName,
+      fileSize: formatFileSize(fileInfo.fileSize),
+      error: error.message,
+      progress: fileInfo.progress
+    })
 
     if (this.onFileError) {
       this.onFileError(fileInfo, error)
@@ -991,4 +1075,129 @@ export class ParallelFileUploader {
       failed: stats.failed
     }
   }
+
+  /**
+   * 🔧 配置验证和优化建议
+   */
+  private validateAndOptimizeConfig(options: ParallelFileUploaderOptions): void {
+    const warnings: string[] = []
+    const suggestions: string[] = []
+
+    // 检查分片大小
+    const chunkSize = options.chunkSize || 1024 * 1024 * 5
+    if (chunkSize < 1024 * 1024) {
+      warnings.push(`分片大小过小 (${formatFileSize(chunkSize)})，可能影响上传性能`)
+      suggestions.push('建议使用 1MB 以上的分片大小')
+    } else if (chunkSize > 1024 * 1024 * 50) {
+      warnings.push(`分片大小过大 (${formatFileSize(chunkSize)})，可能导致内存占用过高`)
+      suggestions.push('建议使用 50MB 以下的分片大小')
+    }
+
+    // 检查并发数
+    if (options.maxConcurrentFiles && options.maxConcurrentFiles > 10) {
+      warnings.push(`并发文件数过多 (${options.maxConcurrentFiles})，可能影响浏览器性能`)
+      suggestions.push('建议将并发文件数控制在 10 以内')
+    }
+
+    if (options.maxConcurrentChunks && options.maxConcurrentChunks > 10) {
+      warnings.push(`并发分片数过多 (${options.maxConcurrentChunks})，可能导致网络拥塞`)
+      suggestions.push('建议将并发分片数控制在 10 以内')
+    }
+
+    // 检查文件类型配置
+    if (options.allowedFileTypes) {
+      const hasWildcard = options.allowedFileTypes.includes('*')
+      const hasEmptyStrings = options.allowedFileTypes.some(type => !type || type.trim() === '')
+      
+      if (hasEmptyStrings) {
+        warnings.push('文件类型配置中包含空字符串，已自动过滤')
+      }
+
+      if (hasWildcard && this.debugMode) {
+        console.log('📁 检测到通配符 "*"，文件类型验证已禁用')
+      }
+    }
+
+    // 输出警告和建议
+    if (warnings.length > 0 && this.debugMode) {
+      console.warn('⚠️ 配置警告:', warnings)
+    }
+    if (suggestions.length > 0 && this.debugMode) {
+      console.info('💡 优化建议:', suggestions)
+    }
+  }
+
+  /**
+   * 🔧 输出初始化信息
+   */
+  private logInitializationInfo(): void {
+    const config = this.fileManager.getConfiguration()
+    console.log('🚀 ParallelFileUploader 初始化完成', {
+      version: '2.0.1',
+      config: {
+        maxConcurrentFiles: this.maxConcurrentFiles,
+        maxConcurrentChunks: this.maxConcurrentChunks,
+        chunkSize: formatFileSize(this.chunkManager.getChunkSize()),
+        maxFileSize: config.maxFileSize || '无限制',
+        allowedFileTypes: config.supportedTypesDescription,
+        features: {
+          speedLimit: this.speedLimiter.isEnabled(),
+          performanceMonitor: this.performanceMonitor.isEnabled(),
+          queuePersistence: this.queuePersistence.isEnabled(),
+          workerSupport: this.workerManager.isSupported()
+        }
+      }
+    })
+  }
+
+  /**
+   * 🔧 获取详细的配置信息
+   */
+  getConfiguration(): {
+    fileManager: any
+    chunkManager: { chunkSize: string }
+    features: {
+      speedLimit: boolean
+      performanceMonitor: boolean
+      queuePersistence: boolean
+      workerSupport: boolean
+    }
+    limits: {
+      maxConcurrentFiles: number
+      maxConcurrentChunks: number
+      maxRetries: number
+    }
+  } {
+    return {
+      fileManager: this.fileManager.getConfiguration(),
+      chunkManager: {
+        chunkSize: formatFileSize(this.chunkManager.getChunkSize())
+      },
+      features: {
+        speedLimit: this.speedLimiter.isEnabled(),
+        performanceMonitor: this.performanceMonitor.isEnabled(),
+        queuePersistence: this.queuePersistence.isEnabled(),
+        workerSupport: this.workerManager.isSupported()
+      },
+      limits: {
+        maxConcurrentFiles: this.maxConcurrentFiles,
+        maxConcurrentChunks: this.maxConcurrentChunks,
+        maxRetries: this.maxRetries
+      }
+    }
+  }
+
+  /**
+   * 🔧 启用/禁用调试模式
+   */
+  setDebugMode(enabled: boolean): void {
+    this.debugMode = enabled
+    if (enabled) {
+      console.log('🔍 调试模式已启用')
+      console.log('📊 当前配置:', this.getConfiguration())
+    }
+  }
 }
+
+// 导出格式化工具函数
+export { formatFileSize, formatSpeed }

@@ -687,6 +687,36 @@ const uploader = new ParallelFileUploader({
 });
 ```
 
+#### 🔧 partSize 兼容性增强 (v2.0.2+)
+
+工具现在支持在没有 `partSize` 信息的情况下进行断点续传。即使后端 API 返回的分片数据中缺少 `partSize` 字段，系统也会自动计算并修复：
+
+```typescript
+// ✅ 支持这种格式的返回数据
+{
+  "isSuccess": true,
+  "data": [
+    {
+      "partNumber": 1,
+      "etag": "6cd32d171a26ca01611b1f72f4f5664"
+      // partSize 缺失也没关系！系统会自动计算
+    },
+    {
+      "partNumber": 2,
+      "etag": "3bc6cd1a9f9c95468c7cbcf3b31fa1"
+      // 同样支持 partSize: 0 或 undefined
+    }
+  ]
+}
+```
+
+**智能计算逻辑：**
+- 普通分片：使用配置的 `chunkSize` 
+- 最后分片：根据 `文件总大小 - 前面分片大小` 自动计算
+- 数据验证：自动检查分片编号的合理性和 etag 的有效性
+
+这使得工具能够兼容更多类型的后端实现，无需修改现有的服务端代码。
+
 ### 秒传实现
 
 ```typescript

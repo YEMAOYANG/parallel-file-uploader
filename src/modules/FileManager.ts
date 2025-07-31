@@ -2,6 +2,17 @@ import { v4 as uuid } from 'uuid'
 import { FileInfo, UploadStepEnum, ErrorType, UploaderError } from '../type'
 
 /**
+ * 文件大小格式化工具
+ */
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+/**
  * 文件管理器
  * 负责文件队列管理、文件验证、状态管理等
  */
@@ -16,7 +27,43 @@ export class FileManager {
     allowedFileTypes?: string[]
   } = {}) {
     this.maxFileSize = options.maxFileSize
-    this.allowedFileTypes = options.allowedFileTypes
+    // 🔧 处理文件类型配置，自动过滤无效配置
+    this.allowedFileTypes = this.processAllowedFileTypes(options.allowedFileTypes)
+  }
+
+  /**
+   * 🔧 处理和验证允许的文件类型配置
+   */
+  private processAllowedFileTypes(types?: string[]): string[] | undefined {
+    if (!types || types.length === 0) {
+      return undefined
+    }
+
+    // 处理通配符和无效配置
+    const processedTypes = types.filter((type) => {
+      // 支持 "*" 通配符，表示允许所有文件类型
+      if (type === '*') {
+        console.log('📁 检测到通配符 "*"，将允许所有文件类型')
+        return false // 返回 undefined 表示不限制
+      }
+      
+      // 过滤空字符串
+      if (!type || type.trim() === '') {
+        console.warn('⚠️ 检测到空的文件类型配置，已忽略')
+        return false
+      }
+      
+      return true
+    })
+
+    // 如果包含 "*" 或处理后为空，表示不限制文件类型
+    if (types.includes('*') || processedTypes.length === 0) {
+      console.log('📁 文件类型验证已禁用，允许所有文件类型')
+      return undefined
+    }
+
+    console.log('📁 有效的文件类型限制:', processedTypes)
+    return processedTypes
   }
 
   /**
@@ -46,7 +93,11 @@ export class FileManager {
         this.fileQueue.push(fileInfo)
         addedFiles.push(fileInfo)
       } catch (error) {
-        // 验证失败的文件会抛出错误，由调用方处理
+        // 🔧 增强错误信息，包含文件详情
+        if (error instanceof UploaderError) {
+          // 添加文件详情到错误信息
+          error.message = `文件 "${file.name}" (${formatFileSize(file.size)}) 验证失败: ${error.message}`
+        }
         throw error
       }
     }
@@ -55,15 +106,32 @@ export class FileManager {
   }
 
   /**
-   * 验证文件
+   * 🔧 增强的文件验证方法
    */
   private validateFile(file: File): void {
+    // 🔧 基础文件验证
+    if (!file || !file.name) {
+      throw new UploaderError(
+        '无效的文件对象',
+        ErrorType.FILE_TYPE_NOT_ALLOWED
+      )
+    }
+
+    // 🔧 文件大小为0的检查
+    if (file.size === 0) {
+      throw new UploaderError(
+        '文件大小为0，无法上传空文件',
+        ErrorType.FILE_TOO_LARGE
+      )
+    }
+
     // 验证文件类型
     if (this.allowedFileTypes && this.allowedFileTypes.length > 0) {
       const fileType = file.type || this.getFileExtension(file.name)
-      if (!this.isFileTypeAllowed(fileType)) {
+      if (!this.isFileTypeAllowed(fileType, file.name)) {
+        const supportedTypes = this.getSupportedTypesDescription()
         throw new UploaderError(
-          `File type not allowed: ${fileType}`,
+          `不支持的文件类型: ${fileType || '未知类型'}。支持的类型: ${supportedTypes}`,
           ErrorType.FILE_TYPE_NOT_ALLOWED
         )
       }
@@ -72,7 +140,7 @@ export class FileManager {
     // 验证文件大小
     if (this.maxFileSize && file.size > this.maxFileSize) {
       throw new UploaderError(
-        `File size exceeds limit: ${file.size} > ${this.maxFileSize}`,
+        `文件大小超出限制: ${formatFileSize(file.size)} > ${formatFileSize(this.maxFileSize)}`,
         ErrorType.FILE_TOO_LARGE
       )
     }
@@ -209,27 +277,78 @@ export class FileManager {
   }
 
   /**
-   * 检查文件类型是否允许
+   * 🔧 增强的文件类型检查方法
    */
-  private isFileTypeAllowed(fileType: string): boolean {
+  private isFileTypeAllowed(fileType: string, fileName: string): boolean {
     if (!this.allowedFileTypes || this.allowedFileTypes.length === 0) {
       return true
     }
 
-    // 处理MIME类型
-    if (fileType.includes('/')) {
-      return this.allowedFileTypes.some((type) => {
+    // 获取文件扩展名
+    const extension = this.getFileExtension(fileName)
+
+    return this.allowedFileTypes.some((type) => {
+      // 🔧 支持 "*" 通配符
+      if (type === '*') {
+        return true
+      }
+
+      // 处理MIME类型
+      if (type.includes('/')) {
         // 完全匹配 (image/png)
         if (type === fileType) return true
         // 通配符匹配 (image/*)
         if (type.endsWith('/*') && fileType.startsWith(type.split('/*')[0])) return true
         return false
-      })
+      }
+
+      // 处理扩展名 - 支持多种格式
+      const normalizedType = type.toLowerCase()
+      const normalizedExt = extension.toLowerCase()
+      
+      // 支持 .pdf, pdf, PDF 等格式
+      if (normalizedType === `.${normalizedExt}` || 
+          normalizedType === normalizedExt ||
+          normalizedType === `.${normalizedExt.toLowerCase()}`) {
+        return true
+      }
+
+      return false
+    })
+  }
+
+  /**
+   * 🔧 获取支持的文件类型描述
+   */
+  private getSupportedTypesDescription(): string {
+    if (!this.allowedFileTypes || this.allowedFileTypes.length === 0) {
+      return '所有文件类型'
     }
 
-    // 处理扩展名
-    return (
-      this.allowedFileTypes.includes(`.${fileType}`) || this.allowedFileTypes.includes(fileType)
-    )
+    if (this.allowedFileTypes.includes('*')) {
+      return '所有文件类型'
+    }
+
+    // 限制显示的类型数量，避免过长
+    if (this.allowedFileTypes.length <= 5) {
+      return this.allowedFileTypes.join(', ')
+    }
+
+    return `${this.allowedFileTypes.slice(0, 3).join(', ')} 等 ${this.allowedFileTypes.length} 种类型`
+  }
+
+  /**
+   * 🔧 获取当前配置信息（用于调试）
+   */
+  getConfiguration(): {
+    maxFileSize?: string
+    allowedFileTypes?: string[]
+    supportedTypesDescription: string
+  } {
+    return {
+      maxFileSize: this.maxFileSize ? formatFileSize(this.maxFileSize) : undefined,
+      allowedFileTypes: this.allowedFileTypes,
+      supportedTypesDescription: this.getSupportedTypesDescription()
+    }
   }
 } 

@@ -39,13 +39,22 @@
   </style>
 </head>
 <body>
-  <h1>Worker功能测试</h1>
+  <h1>Worker功能测试 - v2.0.1</h1>
+  
+  <div style="background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+    <h3 style="margin: 0 0 10px 0; color: #1976d2;">🔧 新功能测试</h3>
+    <p style="margin: 0; color: #555; font-size: 14px;">
+      测试 ParallelFileUploader v2.0.1 的新功能，包括调试模式、通配符支持、增强错误处理等。
+    </p>
+  </div>
   
   <div>
     <input type="file" id="fileInput" multiple accept="*/*">
     <br>
     <button onclick="testWorkerInitialization()">测试Worker初始化</button>
     <button onclick="testFileUpload()">测试文件上传</button>
+    <button onclick="testUploaderFeatures()">🔧 测试新功能</button>
+    <button onclick="testFileTypeValidation()">🔧 测试文件类型验证</button>
     <button onclick="clearLog()">清空日志</button>
   </div>
   
@@ -150,6 +159,127 @@
       log('✅ 文件分片测试完成');
     };
 
+    // 🔧 测试上传器新功能
+    window.testUploaderFeatures = async function() {
+      log('=== 开始测试 ParallelFileUploader v2.0.1 新功能 ===');
+      
+      try {
+        // 动态导入上传器
+        const { ParallelFileUploader } = await import('../lib/index.js');
+        log('✅ 成功导入 ParallelFileUploader');
+        
+        // 创建带有新功能的上传器实例
+        const uploader = new ParallelFileUploader({
+          debugMode: true, // 🔧 新功能：调试模式
+          allowedFileTypes: ['*'], // 🔧 新功能：通配符支持
+          maxFileSize: 5 * 1024 * 1024, // 5MB 限制
+          maxConcurrentFiles: 2,
+          chunkSize: 1024 * 1024,
+          
+          // 模拟服务器回调
+          sendFileInfoToServer: async (fileInfo) => {
+            log(`📤 模拟发送文件信息: ${fileInfo.fileName}`);
+            return { isSuccess: true, data: {} };
+          },
+          
+          sendFilePartToServer: async (fileInfo, chunkInfo) => {
+            log(`📦 模拟上传分片: ${fileInfo.fileName} part ${chunkInfo.partNumber}`);
+            return { isSuccess: true, data: { etag: 'mock-etag' } };
+          },
+          
+          // 🔧 新功能：文件被拒绝回调
+          onFileRejected: (file, reason) => {
+            log(`❌ 文件被拒绝: ${file.name} - ${reason}`);
+          },
+          
+          onFileAdded: (fileInfo) => {
+            log(`✅ 文件已添加: ${fileInfo.fileName} (${(fileInfo.fileSize / 1024).toFixed(2)} KB)`);
+          }
+        });
+        
+        log('✅ 成功创建上传器实例');
+        
+        // 🔧 测试新API方法
+        log('\n--- 测试新API方法 ---');
+        
+        // 获取配置信息
+        const config = uploader.getConfiguration();
+        log('📊 配置信息:');
+        log(`  - 分片大小: ${config.chunkManager.chunkSize}`);
+        log(`  - 文件类型: ${config.fileManager.supportedTypesDescription}`);
+        log(`  - Worker支持: ${config.features.workerSupport}`);
+        log(`  - 调试模式: 启用`);
+        
+        // 测试调试模式切换
+        log('\n🔍 测试调试模式切换:');
+        uploader.setDebugMode(false);
+        log('  - 调试模式已禁用');
+        uploader.setDebugMode(true);
+        log('  - 调试模式已重新启用');
+        
+        // 获取统计信息
+        const stats = uploader.getStats();
+        log(`\n📈 队列统计: 队列${stats.queued}个, 活动${stats.active}个`);
+        
+        // 获取性能数据
+        const perfData = uploader.getPerformanceData();
+        log(`📊 性能数据: 当前速度${perfData.currentSpeed}bytes/s, 平均速度${perfData.averageSpeed}bytes/s`);
+        
+        // 将上传器实例保存到全局，供其他测试使用
+        window.testUploader = uploader;
+        log('✅ 上传器实例已保存到 window.testUploader');
+        
+      } catch (error) {
+        log(`❌ 新功能测试失败: ${error.message}`);
+      }
+    };
+
+    // 🔧 测试文件类型验证
+    window.testFileTypeValidation = function() {
+      log('=== 开始测试文件类型验证功能 ===');
+      
+      if (!window.testUploader) {
+        log('❌ 请先运行"测试新功能"来创建上传器实例');
+        return;
+      }
+      
+      // 创建不同类型的测试文件
+      const testFiles = [
+        // 普通文本文件
+        new File(['Hello World'], 'test.txt', { type: 'text/plain' }),
+        // 图片文件
+        new File([new ArrayBuffer(1024)], 'test.jpg', { type: 'image/jpeg' }),
+        // PDF文件
+        new File([new ArrayBuffer(2048)], 'test.pdf', { type: 'application/pdf' }),
+        // 大文件（>5MB，应该被拒绝）
+        new File([new ArrayBuffer(6 * 1024 * 1024)], 'large.txt', { type: 'text/plain' })
+      ];
+      
+      log('📁 测试文件列表:');
+      testFiles.forEach(file => {
+        log(`  - ${file.name} (${file.type}, ${(file.size / 1024).toFixed(2)} KB)`);
+      });
+      
+      log('\n开始添加文件到上传器...');
+      
+      // 逐个添加文件进行测试
+      testFiles.forEach((file, index) => {
+        log(`\n📂 测试文件 ${index + 1}: ${file.name}`);
+        try {
+          window.testUploader.addFiles([file]);
+          log(`  ✅ 文件添加成功`);
+        } catch (error) {
+          log(`  ❌ 文件添加失败: ${error.message}`);
+        }
+      });
+      
+      // 显示最终统计
+      setTimeout(() => {
+        const finalStats = window.testUploader.getStats();
+        log(`\n📊 最终统计: 队列${finalStats.queued}个, 活动${finalStats.active}个, 完成${finalStats.completed}个, 失败${finalStats.failed}个`);
+      }, 1000);
+    };
+
     // 清空日志
     window.clearLog = function() {
       document.getElementById('log').textContent = '';
@@ -157,10 +287,22 @@
 
     // 页面加载时显示环境信息
     window.addEventListener('load', function() {
-      log('=== Worker功能测试页面 ===');
-      log(`浏览器: ${navigator.userAgent}`);
+      log('=== ParallelFileUploader v2.0.1 Worker功能测试 ===');
+      log(`浏览器: ${navigator.userAgent.split('(')[0].trim()}`);
       log(`Worker支持: ${typeof Worker !== 'undefined' ? '✅' : '❌'}`);
       log(`CPU核心数: ${navigator.hardwareConcurrency || '未知'}`);
+      log('');
+      log('🔧 v2.0.1 新功能特性:');
+      log('   ✅ 调试模式 - 详细日志输出');
+      log('   ✅ 通配符支持 - 文件类型配置 "*"');
+      log('   ✅ 增强错误处理 - 友好的中文提示');
+      log('   ✅ 配置验证 - 自动检测问题');
+      log('   ✅ 新增API - getConfiguration(), setDebugMode()');
+      log('');
+      log('💡 使用说明:');
+      log('   1. 点击"🔧 测试新功能"体验新特性');
+      log('   2. 点击"🔧 测试文件类型验证"测试文件限制');
+      log('   3. 选择文件后点击"测试文件上传"查看处理流程');
       log('------------------------');
     });
   </script>

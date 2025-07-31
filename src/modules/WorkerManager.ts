@@ -242,4 +242,11 @@ export class WorkerManager {
     this.messageHandlers.clear()
     this.globalMessageHandler = undefined
   }
+
+  /**
+   * 🔧 检查是否支持 Web Worker
+   */
+  isSupported(): boolean {
+    return typeof Worker !== 'undefined' && typeof window !== 'undefined'
+  }
 } 

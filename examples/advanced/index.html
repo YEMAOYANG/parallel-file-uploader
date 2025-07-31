@@ -376,6 +376,31 @@
     <h1>并行文件上传器 - 高级示例</h1>
     <p class="subtitle">展示性能监控、速度限制、队列持久化等高级功能</p>
     
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+      <h3 style="margin: 0 0 15px 0; color: white;">🚀 v2.0.1 新功能亮点</h3>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">
+        <div>
+          <h4 style="margin: 0 0 8px 0; color: #e8eaf6;">🔧 增强配置</h4>
+          <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6;">
+            <li>调试模式：实时查看详细日志</li>
+            <li>通配符支持：文件类型配置更灵活</li>
+            <li>配置验证：自动检测问题并优化建议</li>
+          </ul>
+        </div>
+        <div>
+          <h4 style="margin: 0 0 8px 0; color: #e8eaf6;">🎯 智能处理</h4>
+          <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6;">
+            <li>友好错误提示：中文提示更易理解</li>
+            <li>文件验证增强：支持多种限制策略</li>
+            <li>动态API：运行时调整配置</li>
+          </ul>
+        </div>
+      </div>
+      <p style="margin: 15px 0 0 0; font-size: 13px; opacity: 0.9;">
+        💡 打开浏览器控制台查看详细演示命令，或在右侧控制面板调整配置体验新功能
+      </p>
+    </div>
+    
     <div class="upload-area" id="uploadArea">
       <p>点击选择文件或将文件拖拽到此处</p>
       <p style="color: #999; font-size: 14px;">支持多文件上传，大文件将自动分片</p>
@@ -440,6 +465,45 @@
             <span style="margin-left: 10px; font-size: 14px; color: #666;">自动保存上传进度</span>
           </div>
           <div id="persistenceInfo" class="persistence-info" style="display: none;"></div>
+        </div>
+        
+        <!-- 🔧 新增配置选项 -->
+        <div class="control-group">
+          <label class="control-label">调试模式</label>
+          <div class="control-row">
+            <label class="switch">
+              <input type="checkbox" id="debugMode" checked>
+              <span class="slider"></span>
+            </label>
+            <span style="margin-left: 10px; font-size: 14px; color: #666;">显示详细日志</span>
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label class="control-label">最大文件大小 (MB)</label>
+          <div class="control-row">
+            <input type="range" id="maxFileSize" min="1" max="1000" value="100">
+            <span class="control-value" id="maxFileSizeValue">100 MB</span>
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label class="control-label">文件类型限制</label>
+          <div class="control-row">
+            <select id="fileTypeMode" style="padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+              <option value="all">允许所有类型 (*)</option>
+              <option value="images">仅图片 (image/*)</option>
+              <option value="documents">仅文档 (.pdf,.doc,.docx)</option>
+              <option value="custom">自定义</option>
+            </select>
+          </div>
+          <div id="customFileTypes" style="display: none; margin-top: 10px;">
+            <input type="text" id="customFileTypesInput" placeholder="例如: image/*,.pdf,.doc" 
+                   style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+            <div style="font-size: 12px; color: #666; margin-top: 5px;">
+              支持 MIME 类型（image/*）、扩展名（.pdf）和通配符（*）
+            </div>
+          </div>
         </div>
       </div>
       
@@ -510,11 +574,16 @@
         maxConcurrentChunks: parseInt(document.getElementById('concurrentChunks').value),
         chunkSize: parseInt(document.getElementById('chunkSize').value) * 1024 * 1024,
         
+        // 🔧 新增功能配置
+        debugMode: document.getElementById('debugMode').checked, // 调试模式
+        allowedFileTypes: getSelectedFileTypes(), // 支持通配符和多种配置
+        maxFileSize: parseInt(document.getElementById('maxFileSize').value) * 1024 * 1024, // MB转字节
+        
         // 高级功能
         enablePerformanceMonitor: true,
         enableQueuePersistence: document.getElementById('persistenceEnabled').checked,
         enableSpeedLimit: document.getElementById('speedLimitEnabled').checked,
-        speedLimit: parseInt(document.getElementById('speedLimit').value) * 1024,
+        maxUploadSpeed: parseInt(document.getElementById('speedLimit').value) * 1024, // 修正属性名
         persistenceKey: 'advanced-example-queue',
         
         // 模拟服务器交互
@@ -618,8 +687,17 @@
           updateTotalProgress();
         },
         
+        // 🔧 新增：文件被拒绝时的回调
+        onFileRejected: (file, reason) => {
+          console.error('文件被拒绝:', file.name, reason);
+          showNotification(`文件 "${file.name}" 被拒绝: ${reason}`, 'error');
+          // 显示在文件列表中
+          addRejectedFileToUI(file, reason);
+        },
+        
         onAllComplete: () => {
           console.log('所有文件上传完成！');
+          showNotification('所有文件上传完成！', 'success');
           if (document.getElementById('persistenceEnabled').checked) {
             // 清除持久化数据
             localStorage.removeItem('advanced-example-queue');
@@ -830,6 +908,26 @@
       }
     });
     
+    // 🔧 新增配置选项的事件监听器
+    document.getElementById('maxFileSize').addEventListener('input', (e) => {
+      document.getElementById('maxFileSizeValue').textContent = `${e.target.value} MB`;
+    });
+    
+    document.getElementById('debugMode').addEventListener('change', (e) => {
+      if (uploader) {
+        uploader.setDebugMode(e.target.checked);
+      }
+    });
+    
+    document.getElementById('fileTypeMode').addEventListener('change', (e) => {
+      const customDiv = document.getElementById('customFileTypes');
+      if (e.target.value === 'custom') {
+        customDiv.style.display = 'block';
+      } else {
+        customDiv.style.display = 'none';
+      }
+    });
+    
     // 文件选择
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
@@ -866,9 +964,125 @@
       }
     });
     
+    // 🔧 新增工具函数
+    
+    // 获取选择的文件类型配置
+    function getSelectedFileTypes() {
+      const mode = document.getElementById('fileTypeMode').value;
+      switch (mode) {
+        case 'all':
+          return ['*']; // 通配符，允许所有类型
+        case 'images':
+          return ['image/*'];
+        case 'documents':
+          return ['.pdf', '.doc', '.docx', '.txt'];
+        case 'custom':
+          const customInput = document.getElementById('customFileTypesInput').value.trim();
+          return customInput ? customInput.split(',').map(type => type.trim()) : ['*'];
+        default:
+          return ['*'];
+      }
+    }
+    
+    // 通知函数
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.className = `notification notification-${type}`;
+      notification.textContent = message;
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        border-radius: 4px;
+        color: white;
+        font-weight: 500;
+        z-index: 1000;
+        max-width: 400px;
+        word-wrap: break-word;
+        ${type === 'success' ? 'background-color: #4CAF50;' : 
+          type === 'error' ? 'background-color: #f44336;' : 
+          'background-color: #2196F3;'}
+      `;
+      
+      document.body.appendChild(notification);
+      
+      // 3秒后自动移除
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+      }, 3000);
+    }
+    
+    // 添加被拒绝的文件到UI
+    function addRejectedFileToUI(file, reason) {
+      const fileList = document.getElementById('fileList');
+      const fileItem = document.createElement('div');
+      fileItem.className = 'file-item';
+      fileItem.style.borderLeft = '4px solid #f44336';
+      
+      fileItem.innerHTML = `
+        <div class="file-header">
+          <div class="file-info">
+            <div class="file-name">${file.name}</div>
+            <div class="file-details">
+              <span>${formatFileSize(file.size)}</span>
+              <span style="color: #f44336;">被拒绝</span>
+            </div>
+          </div>
+        </div>
+        <div class="file-status" style="color: #f44336; font-weight: 500;">
+          ${reason}
+        </div>
+      `;
+      
+      fileList.appendChild(fileItem);
+      
+      // 5秒后自动移除
+      setTimeout(() => {
+        if (fileItem.parentNode) {
+          fileItem.parentNode.removeChild(fileItem);
+        }
+      }, 5000);
+    }
+    
+    // 演示新功能的控制台命令
+    function showDebugCommands() {
+      console.log('');
+      console.log('🔧 ParallelFileUploader v2.0.1 - 新功能演示');
+      console.log('================================================');
+      console.log('');
+      console.log('📊 获取上传器配置信息:');
+      console.log('   uploader.getConfiguration()');
+      console.log('');
+      console.log('🔍 动态控制调试模式:');
+      console.log('   uploader.setDebugMode(true)   // 启用调试');
+      console.log('   uploader.setDebugMode(false)  // 禁用调试');
+      console.log('');
+      console.log('📈 获取详细统计信息:');
+      console.log('   uploader.getStats()           // 队列统计');
+      console.log('   uploader.getPerformanceData() // 性能数据');
+      console.log('');
+      console.log('🎯 测试文件类型限制:');
+      console.log('   // 在"文件类型限制"下拉框中选择不同选项');
+      console.log('   // 然后尝试上传不同类型的文件进行测试');
+      console.log('');
+      console.log('💾 当前配置摘要:');
+      console.log('   允许的文件类型:', getSelectedFileTypes());
+      console.log('   最大文件大小:', document.getElementById('maxFileSize').value + 'MB');
+      console.log('   调试模式:', document.getElementById('debugMode').checked ? '启用' : '禁用');
+      console.log('');
+    }
+    
     // 初始化
     initUploader();
     checkPersistence();
+    
+    // 显示新功能演示信息
+    setTimeout(() => {
+      showDebugCommands();
+    }, 1000);
   </script>
 </body>
 </html> 

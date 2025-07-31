@@ -171,6 +171,20 @@
   <div class="container">
     <h1>并行文件上传器 - 基础示例</h1>
     
+    <div style="background: #e3f2fd; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #2196F3;">
+      <h3 style="margin: 0 0 10px 0; color: #1976d2;">🔧 v2.0.1 新功能演示</h3>
+      <ul style="margin: 0; padding-left: 20px; color: #555;">
+        <li><strong>调试模式:</strong> 启用详细日志输出，便于开发调试</li>
+        <li><strong>通配符支持:</strong> 文件类型配置支持 "*" 通配符，允许所有文件类型</li>
+        <li><strong>增强错误处理:</strong> 友好的中文错误提示和详细的错误信息</li>
+        <li><strong>配置验证:</strong> 自动检测配置问题并给出优化建议</li>
+        <li><strong>新增 API:</strong> getConfiguration()、setDebugMode() 等新方法</li>
+      </ul>
+      <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">
+        💡 打开浏览器控制台查看详细日志和演示命令
+      </p>
+    </div>
+    
     <div class="upload-area" id="uploadArea">
       <p>点击选择文件或将文件拖拽到此处</p>
       <p style="color: #999; font-size: 14px;">支持多文件上传</p>
@@ -200,11 +214,17 @@
   <script type="module">
     import { ParallelFileUploader } from '../../dist/index.js';
     
-    // 创建上传器实例
+    // 创建上传器实例 - 展示新的功能
     const uploader = new ParallelFileUploader({
+      // 基础配置
       maxConcurrentFiles: 2,
       maxConcurrentChunks: 3,
       chunkSize: 2 * 1024 * 1024, // 2MB
+      
+      // 🔧 新增功能
+      debugMode: true, // 启用调试模式，查看详细日志
+      allowedFileTypes: ['*'], // 支持通配符，允许所有文件类型
+      maxFileSize: 100 * 1024 * 1024, // 100MB 文件大小限制
       
       // 模拟服务器交互
       sendFileInfoToServer: async (fileInfo) => {
@@ -282,8 +302,15 @@
         updateStats();
       },
       
+      // 🔧 新增：文件被拒绝时的回调（文件验证失败）
+      onFileRejected: (file, reason) => {
+        console.error('文件被拒绝:', file.name, reason);
+        showNotification(`文件 "${file.name}" 被拒绝: ${reason}`, 'error');
+      },
+      
       onAllComplete: () => {
         console.log('所有文件上传完成！');
+        showNotification('所有文件上传完成！', 'success');
         updateStats();
       }
     });
@@ -408,6 +435,63 @@
         uploader.addFiles(files);
       }
     });
+    
+    // 🔧 新增功能演示
+    
+    // 通知函数
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.className = `notification notification-${type}`;
+      notification.textContent = message;
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        border-radius: 4px;
+        color: white;
+        font-weight: 500;
+        z-index: 1000;
+        max-width: 400px;
+        word-wrap: break-word;
+        ${type === 'success' ? 'background-color: #4CAF50;' : 
+          type === 'error' ? 'background-color: #f44336;' : 
+          'background-color: #2196F3;'}
+      `;
+      
+      document.body.appendChild(notification);
+      
+      // 3秒后自动移除
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+      }, 3000);
+    }
+    
+    // 演示新功能的控制台命令
+    console.log('🔧 新功能演示 - 在控制台中运行以下命令:');
+    console.log('');
+    console.log('1. 查看上传器配置:');
+    console.log('   uploader.getConfiguration()');
+    console.log('');
+    console.log('2. 启用/禁用调试模式:');
+    console.log('   uploader.setDebugMode(true)  // 启用');
+    console.log('   uploader.setDebugMode(false) // 禁用');
+    console.log('');
+    console.log('3. 查看上传统计:');
+    console.log('   uploader.getStats()');
+    console.log('');
+    console.log('4. 获取性能数据:');
+    console.log('   uploader.getPerformanceData()');
+    console.log('');
+    console.log('5. 测试文件类型限制（尝试添加不支持的文件类型）:');
+    console.log('   // 由于使用了通配符 "*"，所有文件类型都被允许');
+    console.log('   // 可以修改 allowedFileTypes 为 ["image/*"] 来测试限制');
+    console.log('');
+    console.log('📁 当前文件类型配置: 允许所有文件类型 (*)');
+    console.log('💾 最大文件大小: 100MB');
+    console.log('🔍 调试模式: 已启用 (查看控制台日志)');
   </script>
 </body>
 </html> 

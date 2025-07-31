@@ -140,7 +140,11 @@ export interface ParallelFileUploaderOptions {
   maxRetries?: number
   /** 最大文件大小限制（字节） */
   maxFileSize?: number
-  /** 允许的文件类型列表，支持MIME类型和扩展名 */
+  /** 
+   * 🔧 允许的文件类型列表，支持MIME类型和扩展名
+   * 支持 "*" 通配符表示允许所有文件类型
+   * @example ['image/*', '.pdf', 'application/json', '*']
+   */
   allowedFileTypes?: string[]
   /** 分片上传URL（已废弃，建议使用sendFilePartToServer） */
   uploadPartUrl?: string
@@ -148,6 +152,10 @@ export interface ParallelFileUploaderOptions {
   retryDelay?: number
   /** 是否自动开始上传，默认true */
   autoStart?: boolean
+
+  // 🔧 新增功能配置
+  /** 是否启用调试模式，默认false */
+  debugMode?: boolean
 
   // 新增功能配置 - 默认均不启用
   /** 是否启用速度限制，默认false */

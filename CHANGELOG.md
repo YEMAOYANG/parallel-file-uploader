@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2025-01-14
+
+### Enhanced
+- 🔧 **断点续传兼容性增强**
+  - 新增智能 partSize 计算功能，支持在没有分片大小信息时自动计算
+  - 增强 `resumeFromExistingParts` 方法，移除严格的 partSize 检查
+  - 添加 `validateAndFixPartInfo` 方法自动修复缺失的分片数据
+  - 添加 `calculateExpectedPartSize` 方法智能计算分片大小
+  - 更宽松的数据验证策略，保持重要安全检查的同时提高兼容性
+  - 增加详细的调试日志，方便排查断点续传问题
+
+### Improved
+- 🔄 断点续传现在完全兼容不提供 partSize 的后端 API
+- 📊 增强断点续传统计信息输出，提供更清晰的上传进度反馈
+- 🛡️ 保留分片编号合理性检查和 etag 异常检测
+
 ## [2.0.0] - 2025-06-03
 
 ### Added

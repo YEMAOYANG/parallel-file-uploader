@@ -15,6 +15,13 @@ export class ChunkManager {
   }
 
   /**
+   * 🔧 获取分片大小
+   */
+  getChunkSize(): number {
+    return this.chunkSize
+  }
+
+  /**
    * 准备分片队列
    */
   prepareChunkQueue(fileInfo: FileInfo): void {
@@ -137,39 +144,106 @@ export class ChunkManager {
   }
 
   /**
-   * 从已上传的分片恢复上传
+   * 🔧 计算指定分片的预期大小
+   */
+  private calculateExpectedPartSize(partNumber: number, fileSize: number): number {
+    const totalChunks = Math.ceil(fileSize / this.chunkSize)
+    const isLastChunk = partNumber === totalChunks
+    
+    if (isLastChunk) {
+      // 最后一个分片的大小 = 文件总大小 - 前面所有分片的大小
+      const remainingSize = fileSize - (partNumber - 1) * this.chunkSize
+      return remainingSize > 0 ? remainingSize : this.chunkSize
+    } else {
+      // 普通分片使用标准分片大小
+      return this.chunkSize
+    }
+  }
+
+  /**
+   * 🔧 验证和修复分片数据
+   */
+  private validateAndFixPartInfo(part: FilePartInfo, fileSize: number): FilePartInfo {
+    // 如果没有 partSize 或 partSize 无效，计算预期的分片大小
+    if (!part.partSize || part.partSize <= 0) {
+      const expectedSize = this.calculateExpectedPartSize(part.partNumber, fileSize)
+      
+      console.log(`🔧 修复分片 ${part.partNumber} 的 partSize: ${part.partSize || 'undefined'} -> ${expectedSize}`)
+      
+      return {
+        ...part,
+        partSize: expectedSize
+      }
+    }
+    
+    return part
+  }
+
+  /**
+   * 从已上传的分片恢复上传 - 🔧 增强兼容性版本
    */
   resumeFromExistingParts(fileInfo: FileInfo, existingParts: FilePartInfo[]): void {
-    const { fileId } = fileInfo
+    const { fileId, fileSize } = fileInfo
     const uploadedChunks = this.uploadedChunks.get(fileId)
 
-    // 验证分片数据的有效性
-    const hasInvalidPartSize = existingParts.some((part) => !part.partSize || part.partSize === 0)
-    const hasAllSameEtag =
-      new Set(existingParts.map((part) => part.etag)).size === 1 && existingParts.length > 1
+    if (!existingParts || existingParts.length === 0) {
+      console.log('📋 没有已上传的分片数据')
+      return
+    }
 
-    // 如果存在无效的分片数据，则不恢复
-    if (hasInvalidPartSize || hasAllSameEtag) {
-      console.warn('检测到无效分片数据，将重新上传所有分片', {
-        hasInvalidPartSize,
+    // 🔧 修复和验证分片数据
+    const validatedParts = existingParts.map(part => 
+      this.validateAndFixPartInfo(part, fileSize)
+    )
+
+    // 🔧 更宽松的验证逻辑 - 只检查 etag 异常
+    const hasAllSameEtag = 
+      new Set(validatedParts.map(part => part.etag)).size === 1 && 
+      validatedParts.length > 1
+
+    if (hasAllSameEtag) {
+      console.warn('检测到所有分片具有相同的 etag，可能存在异常，将重新上传所有分片', {
         hasAllSameEtag,
-        parts: existingParts,
+        parts: validatedParts,
+      })
+      return
+    }
+
+    // 🔧 额外的合理性检查
+    const maxValidPartNumber = Math.ceil(fileSize / this.chunkSize)
+    const invalidParts = validatedParts.filter(part => 
+      part.partNumber < 1 || part.partNumber > maxValidPartNumber
+    )
+
+    if (invalidParts.length > 0) {
+      console.warn('检测到无效的分片编号，将重新上传所有分片', {
+        invalidParts,
+        maxValidPartNumber,
+        fileSize,
+        chunkSize: this.chunkSize
       })
       return
     }
 
     if (uploadedChunks) {
+      console.log(`🔄 恢复 ${validatedParts.length} 个已上传分片的断点续传`)
+      
       // 标记已上传的分片
-      for (const part of existingParts) {
+      for (const part of validatedParts) {
         uploadedChunks.add(part.partNumber)
 
         // 从队列中移除已上传的分片
         const chunks = this.chunkQueue.get(fileId) || []
-        const index = chunks.findIndex((c) => c.partNumber === part.partNumber)
+        const index = chunks.findIndex(c => c.partNumber === part.partNumber)
         if (index !== -1) {
+          console.log(`✅ 跳过已上传分片 #${part.partNumber} (大小: ${part.partSize} bytes)`)
           chunks.splice(index, 1)
         }
       }
+
+      // 🔧 输出断点续传统计信息
+      const remainingChunks = this.chunkQueue.get(fileId) || []
+      console.log(`📊 断点续传统计: 已完成 ${validatedParts.length} 个分片，剩余 ${remainingChunks.length} 个分片`)
     }
   }
 

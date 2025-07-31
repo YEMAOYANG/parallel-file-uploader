@@ -76,7 +76,7 @@ describe('ParallelFileUploader', () => {
 
       expect(fileRejectedSpy).toHaveBeenCalledWith(
         expect.any(File),
-        expect.stringContaining('File size exceeds limit')
+        expect.stringContaining('文件大小超出限制')
       )
     })
 
@@ -93,7 +93,7 @@ describe('ParallelFileUploader', () => {
 
       expect(fileRejectedSpy).toHaveBeenCalledWith(
         expect.any(File),
-        expect.stringContaining('File type not allowed')
+        expect.stringContaining('不支持的文件类型')
       )
     })
   })
