@@ -57,7 +57,7 @@ export interface FilePartInfo {
   /** 分片编号，从1开始 */
   partNumber: number
   /** 分片大小（字节） */
-  partSize: number
+  partSize?: number
   /** 最后修改时间 */
   lastModified?: number
 }
