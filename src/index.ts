@@ -300,7 +300,6 @@ export class ParallelFileUploader {
 
       // 检查文件是否已存在（秒传）
       if (result.data && result.data.skipUpload) {
-        console.log('🚀 文件已存在，实现秒传', result.data)
         fileInfo.status = UploadStepEnum.complete
 
         if (this.onFileSuccess) {
@@ -320,15 +319,11 @@ export class ParallelFileUploader {
         try {
           const partsResult = await this.getFilePartsFromServer(fileInfo)
           if (partsResult.isSuccess && partsResult.data && partsResult.data.length > 0) {
-            const hasInvalidParts = partsResult.data.some(
-              (part) => !part.partSize || part.partSize === 0
-            )
             const hasAllSameEtag =
               new Set(partsResult.data.map((part) => part.etag)).size === 1 &&
               partsResult.data.length > 1
 
-            if (!hasInvalidParts && !hasAllSameEtag) {
-              console.log('🔄 从已有分片恢复上传', partsResult.data)
+            if (!hasAllSameEtag) {
               this.chunkManager.resumeFromExistingParts(fileInfo, partsResult.data)
             }
           }
