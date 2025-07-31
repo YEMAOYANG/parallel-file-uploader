@@ -3,8 +3,20 @@
   "version": "2.0.0",
   "description": "高性能并行文件上传工具，支持大文件分片上传、断点续传、Web Worker多线程处理",
   "main": "lib/index.js",
-  "module": "lib/index.esm.js",
+  "module": "lib/esm/index.js",
   "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/esm/index.js",
+      "require": "./lib/index.js",
+      "types": "./lib/index.d.ts"
+    },
+    "./worker": {
+      "import": "./lib/esm/worker.js",
+      "require": "./lib/worker.js",
+      "types": "./lib/worker.d.ts"
+    }
+  },
   "files": [
     "lib",
     "dist",
