@@ -17,7 +17,7 @@ interface PersistedFileInfo {
     parts?: Array<{
       etag: string
       partNumber: number
-      partSize: number
+      partSize?: number
     }>
     md5?: string
     [key: string]: any
