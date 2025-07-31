@@ -13,6 +13,9 @@
   <a href="https://coveralls.io/github/yemaoyang/parallel-file-uploader">
     <img src="https://coveralls.io/repos/github/yemaoyang/parallel-file-uploader/badge.svg" alt="coverage">
   </a>
+  <a href="https://github.com/yemaoyang/parallel-file-uploader/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/yemaoyang/parallel-file-uploader/ci.yml" alt="CI/CD">
+  </a>
 </p>
 
 一个功能强大、高性能的JavaScript/TypeScript文件上传工具库，专为现代Web应用设计。通过Web Worker实现真正的多线程处理，支持大文件分片并发上传、断点续传等企业级功能。
@@ -39,6 +42,15 @@
 - 🧪 **完善的单元测试** - 高覆盖率的测试用例，保证代码质量
 - 🎨 **详细错误分类** - 精确的错误类型分类，便于问题诊断和处理
 - 🔧 **Worker管理优化** - 智能的Worker池管理，根据硬件自动调整
+
+### 🔧 v2.0.3 最新改进
+
+- 🐛 **增强错误处理** - 更详细的错误信息和分类，便于调试和问题定位
+- 🔍 **调试模式** - 新增调试模式，提供详细的运行日志和配置信息
+- ⚡ **性能优化** - 优化文件验证和分片处理逻辑，提升上传效率
+- 🛠️ **配置验证** - 智能配置验证，提供优化建议和警告
+- 📋 **兼容性改进** - 保持向后兼容，同时提供新的API方法
+- 🎯 **代码质量** - 遵循SOLID原则和KISS原则，提高代码可维护性
 
 ## 📦 安装
 
@@ -122,6 +134,7 @@ const uploader = new ParallelFileUploader({
   enableSpeedLimit: true,           // 启用速度限制
   maxUploadSpeed: 1024 * 1024,      // 限制上传速度为1MB/s
   persistenceKey: 'my-app-uploads', // 自定义持久化键名
+  debugMode: true,                  // 启用调试模式，输出详细日志
   
   // 服务器交互 - 必须实现这些回调
   sendFileInfoToServer: async (fileInfo) => {
@@ -252,6 +265,7 @@ function formatTime(milliseconds: number): string {
 | `enableSpeedLimit` | `boolean` | `false` | 是否启用速度限制 |
 | `maxUploadSpeed` | `number` | `0` | 速度限制(字节/秒)，0表示不限制 |
 | `persistenceKey` | `string` | `'parallel-uploader-queue'` | 持久化存储键名 |
+| `debugMode` | `boolean` | `false` | 是否启用调试模式，输出详细日志 |
 
 ### 实例方法
 
@@ -361,6 +375,34 @@ uploader.setQueuePersistence(false);
 ##### `destroy(): void`
 
 销毁上传器实例，释放所有资源。
+
+##### `setDebugMode(enabled: boolean): void`
+
+启用或禁用调试模式。
+
+```typescript
+// 启用调试模式，输出详细日志
+uploader.setDebugMode(true);
+
+// 禁用调试模式
+uploader.setDebugMode(false);
+```
+
+##### `getConfiguration(): Configuration`
+
+获取当前配置信息。
+
+```typescript
+const config = uploader.getConfiguration();
+console.log('当前配置:', config);
+// 输出示例:
+// {
+//   fileManager: { maxFileSize: '1 GB', supportedTypesDescription: '所有文件类型' },
+//   chunkManager: { chunkSize: '5 MB' },
+//   features: { speedLimit: true, performanceMonitor: true, queuePersistence: true, workerSupport: true },
+//   limits: { maxConcurrentFiles: 3, maxConcurrentChunks: 4, maxRetries: 3 }
+// }
+```
 
 ### 静态方法
 

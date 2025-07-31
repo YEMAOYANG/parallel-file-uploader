@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2025-01-14
+
+### Added
+
+- 🔍 **调试模式功能**
+  - 新增 `debugMode` 配置选项，支持详细日志输出
+  - 添加 `setDebugMode()` 方法，支持运行时切换调试模式
+  - 新增 `getConfiguration()` 方法，获取当前完整配置信息
+  - 详细的初始化信息输出，包括版本、配置、功能状态等
+
+### Enhanced
+
+- 🐛 **错误处理增强**
+  - 更详细的错误信息输出，包含文件信息、进度等上下文
+  - 增强的错误分类和处理逻辑
+  - 改进的文件验证错误处理，提供更友好的错误提示
+  - 优化错误回调机制，确保错误信息完整传递
+
+- ⚡ **性能优化**
+  - 优化文件验证逻辑，提升大文件处理效率
+  - 改进分片处理算法，减少内存占用
+  - 优化配置验证流程，提供智能优化建议
+
+- 🛠️ **配置验证系统**
+  - 新增 `validateAndOptimizeConfig()` 方法
+  - 智能检测配置问题并提供优化建议
+  - 分片大小、并发数等关键参数的合理性检查
+  - 文件类型配置的自动过滤和验证
+
+### Improved
+
+- 📋 **兼容性改进**
+  - 保持向后兼容，新增功能不影响现有API
+  - 优化现有方法的实现，提高稳定性
+  - 改进类型定义，提供更好的TypeScript支持
+
+- 🎯 **代码质量提升**
+  - 遵循SOLID原则和KISS原则重构代码
+  - 提高代码可读性和可维护性
+  - 优化模块间的依赖关系
+  - 增强代码注释和文档
+
+### Fixed
+
+- 🐛 修复文件验证过程中的潜在错误处理问题
+- 🐛 优化分片上传过程中的错误恢复机制
+- 🐛 改进Worker消息处理的稳定性
+
 ## [2.0.2] - 2025-01-14
 
 ### Enhanced
